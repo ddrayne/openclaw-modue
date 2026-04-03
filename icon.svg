@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0f3460"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="#e94560" stroke-width="4"/>
+  <!-- Left claw pincer -->
+  <path d="M 68 90 Q 48 60, 72 42 Q 96 28, 100 65 Q 102 80, 95 95" 
+        fill="none" stroke="#e94560" stroke-width="8" stroke-linecap="round"/>
+  <!-- Right claw pincer -->
+  <path d="M 188 90 Q 208 60, 184 42 Q 160 28, 156 65 Q 154 80, 161 95" 
+        fill="none" stroke="#e94560" stroke-width="8" stroke-linecap="round"/>
+  <!-- Claw body / base -->
+  <path d="M 85 100 Q 88 130, 128 140 Q 168 130, 171 100" 
+        fill="none" stroke="#e94560" stroke-width="8" stroke-linecap="round"/>
+  <!-- Eye dots -->
+  <circle cx="108" cy="110" r="6" fill="#4488ff"/>
+  <circle cx="148" cy="110" r="6" fill="#4488ff"/>
+  <!-- Signal waves (representing connectivity) -->
+  <path d="M 100 165 Q 128 185, 156 165" fill="none" stroke="#4488ff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 88 180 Q 128 205, 168 180" fill="none" stroke="#4488ff" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <path d="M 76 195 Q 128 225, 180 195" fill="none" stroke="#4488ff" stroke-width="3" stroke-linecap="round" opacity="0.4"/>
+</svg>

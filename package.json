@@ -1,0 +1,10 @@
+{
+  "name": "@modue/openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw control surface — live agent activity, channel health, session browser, and quick commands on your Modue hardware.",
+  "main": "index.js",
+  "author": "ddrayne",
+  "license": "ISC",
+  "devMode": true,
+  "os": "darwin"
+}
