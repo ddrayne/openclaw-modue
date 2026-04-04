@@ -222,24 +222,31 @@ describe('Connection', () => {
       conn._teardown();
     });
 
-    it('truncates to the last 300 characters', () => {
+    it('truncates to the last 500 characters', () => {
       const conn = freshConnection();
-      const chunk = 'a'.repeat(200);
+      const chunk = 'a'.repeat(300);
       conn._appendText(chunk);
-      conn._appendText(chunk); // now 400 chars
-      assert.equal(conn.currentText.length, 300);
-      // Should keep the *last* 300 chars (all 'a' here, but length matters)
-      assert.equal(conn.currentText, 'a'.repeat(300));
+      conn._appendText(chunk); // now 600 chars
+      assert.equal(conn.currentText.length, 500);
+      // Should keep the *last* 500 chars (all 'a' here, but length matters)
+      assert.equal(conn.currentText, 'a'.repeat(500));
       conn._teardown();
     });
 
-    it('keeps text exactly at 300 when appending to exactly 300', () => {
+    it('keeps text exactly at 500 when appending to exactly 500', () => {
       const conn = freshConnection();
-      conn._appendText('x'.repeat(300));
-      assert.equal(conn.currentText.length, 300);
+      conn._appendText('x'.repeat(500));
+      assert.equal(conn.currentText.length, 500);
       conn._appendText('y');
-      assert.equal(conn.currentText.length, 300);
+      assert.equal(conn.currentText.length, 500);
       assert.ok(conn.currentText.endsWith('y'));
+      conn._teardown();
+    });
+
+    it('also sets displayText via _extractDisplayText', () => {
+      const conn = freshConnection();
+      conn._appendText('Hello world');
+      assert.equal(conn.displayText, 'Hello world');
       conn._teardown();
     });
   });
@@ -327,12 +334,13 @@ describe('Connection', () => {
     });
 
     describe('lifecycle', () => {
-      it('start clears text and sets idle', () => {
+      it('start clears text and sets thinking', () => {
         const { conn, client } = connectedPair();
         conn.currentText = 'leftover';
         client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
         assert.equal(conn.currentText, '');
-        assert.equal(conn.agentStatus, 'idle');
+        assert.equal(conn.displayText, '');
+        assert.equal(conn.agentStatus, 'thinking');
         conn._teardown();
       });
 
@@ -346,11 +354,11 @@ describe('Connection', () => {
         conn._teardown();
       });
 
-      it('error sets error status and shows error text', () => {
+      it('error sets error status and shows error in displayText', () => {
         const { conn, client } = connectedPair();
         client.emit('agent', { stream: 'lifecycle', data: { phase: 'error', error: 'kaboom' } });
         assert.equal(conn.agentStatus, 'error');
-        assert.equal(conn.currentText, 'kaboom');
+        assert.equal(conn.displayText, 'kaboom');
         conn._teardown();
       });
     });
@@ -384,11 +392,11 @@ describe('Connection', () => {
     });
 
     describe('tool', () => {
-      it('tool start sets working status and shows tool name', () => {
+      it('tool start sets working status and shows tool name in displayText', () => {
         const { conn, client } = connectedPair();
-        client.emit('agent', { stream: 'tool', data: { phase: 'start', name: 'bash' } });
+        client.emit('agent', { stream: 'tool', data: { phase: 'start', name: 'web_search' } });
         assert.equal(conn.agentStatus, 'working');
-        assert.equal(conn.currentText, 'bash');
+        assert.equal(conn.displayText, '\u2699 web_search');
         conn._teardown();
       });
 
@@ -400,10 +408,10 @@ describe('Connection', () => {
         conn._teardown();
       });
 
-      it('tool start without name shows fallback text', () => {
+      it('tool start without name shows fallback text in displayText', () => {
         const { conn, client } = connectedPair();
         client.emit('agent', { stream: 'tool', data: { phase: 'start' } });
-        assert.equal(conn.currentText, 'Running tool...');
+        assert.equal(conn.displayText, 'running tool...');
         conn._teardown();
       });
     });
@@ -432,16 +440,28 @@ describe('Connection', () => {
   // 7. Approval flow
   // -------------------------------------------------------------------------
   describe('approval flow', () => {
-    it('exec.approval.requested sets pendingApproval and amber color', () => {
+    it('exec.approval.requested sets pendingApproval with risk and amber color', () => {
       const { conn, client } = connectedPair();
       client.emit('exec.approval.requested', {
         id: 'abc',
-        request: { command: 'rm -rf /' },
+        request: { command: 'rm -r /tmp' },
       });
-      assert.deepEqual(conn.pendingApproval, { id: 'abc', command: 'rm -rf /' });
+      assert.deepEqual(conn.pendingApproval, { id: 'abc', command: 'rm -r /tmp', risk: 'HIGH' });
       assert.equal(conn.moodColor, '#ff9900');
+      assert.equal(conn.statusPhrase, '\u26A0 APPROVE?');
+      assert.equal(conn.displayText, 'rm -r /tmp');
+      conn._teardown();
+    });
+
+    it('exec.approval.requested non-destructive gets low risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', {
+        id: 'abc',
+        request: { command: 'ls -la' },
+      });
+      assert.deepEqual(conn.pendingApproval, { id: 'abc', command: 'ls -la', risk: 'low' });
       assert.equal(conn.statusPhrase, 'approve?');
-      assert.equal(conn.currentText, 'rm -rf /');
+      assert.equal(conn.displayText, 'ls -la');
       conn._teardown();
     });
 
@@ -449,7 +469,7 @@ describe('Connection', () => {
       const { conn, client } = connectedPair();
       client.emit('exec.approval.requested', { id: 'z', request: {} });
       assert.equal(conn.pendingApproval.command, '?');
-      assert.equal(conn.currentText, 'Approve this command?');
+      assert.equal(conn.displayText, '?');
       conn._teardown();
     });
 
@@ -498,7 +518,7 @@ describe('Connection', () => {
       assert.equal(rpcCall.params.id, '42');
       assert.equal(rpcCall.params.decision, 'allow-once');
       assert.equal(conn.pendingApproval, null);
-      assert.equal(conn.currentText, 'Approved');
+      assert.equal(conn.displayText, '\u2713 Approved');
       conn._teardown();
     });
 
@@ -516,7 +536,7 @@ describe('Connection', () => {
 
       assert.equal(rpcCall.params.decision, 'deny');
       assert.equal(conn.pendingApproval, null);
-      assert.equal(conn.currentText, 'Denied');
+      assert.equal(conn.displayText, '\u2717 Denied');
       conn._teardown();
     });
 
@@ -737,10 +757,331 @@ describe('Connection', () => {
       conn._teardown();
       assert.equal(conn._client, null);
       assert.equal(conn._idleTimer, null);
+      assert.equal(conn._elapsedTimer, null);
       assert.equal(conn._subscribers.size, 0);
       // Notify after teardown should not call old subscriber.
       conn._notify();
       assert.equal(calls, 0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 12. _extractDisplayText
+  // -------------------------------------------------------------------------
+  describe('_extractDisplayText', () => {
+    it('returns empty string for empty input', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText(''), '');
+      assert.equal(conn._extractDisplayText(null), '');
+      conn._teardown();
+    });
+
+    it('strips bold markdown', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('**bold text**'), 'bold text');
+      conn._teardown();
+    });
+
+    it('strips italic markdown', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('*italic text*'), 'italic text');
+      conn._teardown();
+    });
+
+    it('strips heading markers', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('## Heading'), 'Heading');
+      conn._teardown();
+    });
+
+    it('strips inline code backticks', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('use `npm install`'), 'use npm install');
+      conn._teardown();
+    });
+
+    it('strips markdown links, keeping label', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('[click here](http://example.com)'), 'click here');
+      conn._teardown();
+    });
+
+    it('collapses newlines and whitespace', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('line one\n\nline two'), 'line one line two');
+      conn._teardown();
+    });
+
+    it('extracts last sentence from long text', () => {
+      const conn = freshConnection();
+      // Build text longer than 200 chars to trigger truncation
+      const prefix = 'A'.repeat(180) + '. ';
+      const last = 'This is the final sentence.';
+      const result = conn._extractDisplayText(prefix + last);
+      assert.ok(result.includes('This is the final sentence.'));
+      conn._teardown();
+    });
+
+    it('returns short text unchanged (after markdown strip)', () => {
+      const conn = freshConnection();
+      assert.equal(conn._extractDisplayText('Hello world'), 'Hello world');
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 13. _shortModel
+  // -------------------------------------------------------------------------
+  describe('_shortModel', () => {
+    it('returns empty string when no model set', () => {
+      const conn = freshConnection();
+      assert.equal(conn._shortModel(), '');
+      conn._teardown();
+    });
+
+    it('extracts sonnet from full model path', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'anthropic/claude-sonnet-4-5';
+      assert.equal(conn._shortModel(), 'sonnet');
+      conn._teardown();
+    });
+
+    it('extracts opus from model name', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'claude-opus-4';
+      assert.equal(conn._shortModel(), 'opus');
+      conn._teardown();
+    });
+
+    it('extracts haiku from model name', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'anthropic/claude-haiku-3';
+      assert.equal(conn._shortModel(), 'haiku');
+      conn._teardown();
+    });
+
+    it('extracts gpt-4 from model name', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'openai/gpt-4o';
+      assert.equal(conn._shortModel(), 'gpt-4');
+      conn._teardown();
+    });
+
+    it('extracts gemini from model name', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'google/gemini-pro';
+      assert.equal(conn._shortModel(), 'gemini');
+      conn._teardown();
+    });
+
+    it('falls back to last segment after /', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'provider/my-model';
+      assert.equal(conn._shortModel(), 'my-model');
+      conn._teardown();
+    });
+
+    it('truncates long fallback to 12 chars', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'provider/a-very-long-model-name';
+      assert.equal(conn._shortModel(), 'a-very-long-');
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 14. Elapsed timer
+  // -------------------------------------------------------------------------
+  describe('elapsed timer', () => {
+    it('lifecycle start begins the elapsed timer', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.notEqual(conn.thinkingStarted, null);
+      assert.notEqual(conn._elapsedTimer, null);
+      assert.equal(conn.elapsed, '0s');
+      conn._teardown();
+    });
+
+    it('lifecycle end stops the elapsed timer', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+      assert.equal(conn._elapsedTimer, null);
+      assert.equal(conn.thinkingStarted, null);
+      conn._teardown();
+    });
+
+    it('lifecycle error stops the elapsed timer', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'error', error: 'fail' } });
+      assert.equal(conn._elapsedTimer, null);
+      assert.equal(conn.thinkingStarted, null);
+      conn._teardown();
+    });
+
+    it('statusDetail shows elapsed when thinking', () => {
+      const conn = freshConnection();
+      conn.elapsed = '3s';
+      conn._setStatus('thinking');
+      assert.equal(conn.statusDetail, '3s');
+      conn._teardown();
+    });
+
+    it('statusDetail is cleared on idle', () => {
+      const conn = freshConnection();
+      conn.elapsed = '5s';
+      conn._setStatus('thinking');
+      assert.equal(conn.statusDetail, '5s');
+      conn._setStatus('idle');
+      assert.equal(conn.statusDetail, '');
+      conn._teardown();
+    });
+
+    it('teardown clears the elapsed timer', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.notEqual(conn._elapsedTimer, null);
+      conn._teardown();
+      assert.equal(conn._elapsedTimer, null);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 15. Risk assessment on approval
+  // -------------------------------------------------------------------------
+  describe('risk assessment', () => {
+    it('rm -r is HIGH risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'rm -r /tmp' } });
+      assert.equal(conn.pendingApproval.risk, 'HIGH');
+      conn._teardown();
+    });
+
+    it('rm -f is HIGH risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'rm -f file.txt' } });
+      assert.equal(conn.pendingApproval.risk, 'HIGH');
+      conn._teardown();
+    });
+
+    it('sudo rm is HIGH risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'sudo rm something' } });
+      assert.equal(conn.pendingApproval.risk, 'HIGH');
+      conn._teardown();
+    });
+
+    it('drop table is HIGH risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'drop table users' } });
+      assert.equal(conn.pendingApproval.risk, 'HIGH');
+      conn._teardown();
+    });
+
+    it('kill -9 is HIGH risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'kill -9 1234' } });
+      assert.equal(conn.pendingApproval.risk, 'HIGH');
+      conn._teardown();
+    });
+
+    it('ls is low risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'ls -la' } });
+      assert.equal(conn.pendingApproval.risk, 'low');
+      conn._teardown();
+    });
+
+    it('npm install is low risk', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'npm install express' } });
+      assert.equal(conn.pendingApproval.risk, 'low');
+      conn._teardown();
+    });
+
+    it('destructive commands get warning statusPhrase', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'rm -r /' } });
+      assert.equal(conn.statusPhrase, '\u26A0 APPROVE?');
+      conn._teardown();
+    });
+
+    it('non-destructive commands get normal approve phrase', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', { id: '1', request: { command: 'echo hello' } });
+      assert.equal(conn.statusPhrase, 'approve?');
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 16. sourceSender tracking
+  // -------------------------------------------------------------------------
+  describe('sourceSender tracking', () => {
+    it('tracks sender from agent events', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'thinking', sender: 'alice', data: { thinking: 'hmm' } });
+      assert.equal(conn.sourceSender, 'alice');
+      conn._teardown();
+    });
+
+    it('updates sender on subsequent events', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'thinking', sender: 'alice', data: { thinking: 'hmm' } });
+      client.emit('agent', { stream: 'assistant', sender: 'bob', data: { delta: 'hi' } });
+      assert.equal(conn.sourceSender, 'bob');
+      conn._teardown();
+    });
+
+    it('sender is null initially', () => {
+      const conn = freshConnection();
+      assert.equal(conn.sourceSender, null);
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 17. Model tracking in statusPhrase
+  // -------------------------------------------------------------------------
+  describe('model tracking in statusPhrase', () => {
+    it('thinking includes model name when set', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'anthropic/claude-sonnet-4-5';
+      conn._setStatus('thinking');
+      assert.equal(conn.statusPhrase, 'thinking (sonnet)');
+      conn._teardown();
+    });
+
+    it('talking includes model name when set', () => {
+      const conn = freshConnection();
+      conn.currentModel = 'anthropic/claude-sonnet-4-5';
+      conn._setStatus('talking');
+      assert.equal(conn.statusPhrase, 'replying (sonnet)');
+      conn._teardown();
+    });
+
+    it('thinking without model omits parenthetical', () => {
+      const conn = freshConnection();
+      conn.currentModel = null;
+      conn._setStatus('thinking');
+      assert.equal(conn.statusPhrase, 'thinking');
+      conn._teardown();
+    });
+
+    it('working shows tool name in statusPhrase', () => {
+      const conn = freshConnection();
+      conn.currentTool = 'bash';
+      conn._setStatus('working');
+      assert.equal(conn.statusPhrase, '\u2699 bash');
+      conn._teardown();
+    });
+
+    it('model is tracked from agent events', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'thinking', model: 'anthropic/claude-sonnet-4-5', data: { thinking: 'hmm' } });
+      assert.equal(conn.currentModel, 'anthropic/claude-sonnet-4-5');
+      conn._teardown();
     });
   });
 });
