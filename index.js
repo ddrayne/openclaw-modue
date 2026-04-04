@@ -5,8 +5,7 @@ const { COLORS, truncate, agentLineColor } = require('./lib/renderer');
 const openclawPlugin = (configuration, storage, log) => {
   const state = new State();
   let client = null;
-  let displayInstance = null; // will hold instance.components
-  let rawInstance = null;     // the raw instance for .set() on LEDs etc
+  let displayInstance = null;
   let ledInstance = null;
   let ledAnimFrame = 0;
   let ledAnimTimer = null;
@@ -36,98 +35,76 @@ const openclawPlugin = (configuration, storage, log) => {
     });
 
   // ---------------------------------------------------------------------------
-  // Display — 2x2 tile (120x120px), Option B: Live Stream layout
+  // Display — 2x4 tile (120x240px) — tall layout with lots of room
   //
-  // Row 1 (24px): Lobster icon + status text
-  // Row 2 (60px): 3 lines of streaming text (20px each)
-  // Row 3 (18px): Nav footer
-  // Total: ~102px + margins
+  // Header:  30px — lobster + status
+  // Lines:   7 x 26px = 182px — streaming text
+  // Footer:  22px — nav controls
+  // Total:   234px (fits in 240px with 4px margins)
   // ---------------------------------------------------------------------------
   configuration
     .registerDisplay({ name: 'OpenClaw' })
-    .setSize(2, 2)
+    .setSize(2, 4)
     .addLayer((layer) => {
       layer
-        .setMargin(4, 4, 4, 4)
+        .setMargin(3, 3, 3, 3)
         .setBorderRadius(6, 6, 6, 6)
         .setBackgroundColor(COLORS.bg);
 
-      // --- Header row: icon + status ---
+      // --- Header: lobster + status ---
       layer.addRow((row) => {
-        row.setSize(112, 26).setBackgroundColor(COLORS.header);
+        row.setSize(114, 30).setBackgroundColor(COLORS.header);
 
-        // Lobster emoji as text
         row.addColumn((col) => {
-          col.setSize(26, 26);
+          col.setSize(30, 30);
           col.addDisplayText('icon', (t) =>
             t.setText('\u{1F99E}')
-              .setFontSize(16)
+              .setFontSize(20)
               .setTextAlign('center')
-              .setMargin(3, 0, 0, 4)
+              .setMargin(3, 0, 0, 2)
           );
         });
 
-        // Status text
         row.addColumn((col) => {
-          col.setSize(86, 26);
+          col.setSize(84, 30);
           col.addDisplayText('status', (t) =>
-            t.setText('CONNECTING...')
+            t.setText('CONNECTING')
               .setColor(COLORS.amber)
-              .setFontSize(14)
+              .setFontSize(18)
               .setFontWeight('bold')
               .setMargin(5, 4, 0, 0)
+              .setTextWrap('ellipsis')
           );
         });
       });
 
-      // --- Content: 3 lines of streaming text ---
-      layer.addRow((row) => {
-        row.setSize(112, 22).setBackgroundColor(COLORS.bg);
-        row.addDisplayText('line1', (t) =>
-          t.setText('')
-            .setColor(COLORS.text)
-            .setFontSize(14)
-            .setMargin(4, 6, 0, 6)
-            .setTextWrap('ellipsis')
-        );
-      });
-
-      layer.addRow((row) => {
-        row.setSize(112, 22).setBackgroundColor(COLORS.bgAlt);
-        row.addDisplayText('line2', (t) =>
-          t.setText('')
-            .setColor(COLORS.text)
-            .setFontSize(14)
-            .setMargin(4, 6, 0, 6)
-            .setTextWrap('ellipsis')
-        );
-      });
-
-      layer.addRow((row) => {
-        row.setSize(112, 22).setBackgroundColor(COLORS.bg);
-        row.addDisplayText('line3', (t) =>
-          t.setText('')
-            .setColor(COLORS.text)
-            .setFontSize(14)
-            .setMargin(4, 6, 0, 6)
-            .setTextWrap('ellipsis')
-        );
-      });
+      // --- 7 content lines ---
+      for (let i = 1; i <= 7; i++) {
+        layer.addRow((row) => {
+          row.setSize(114, 26).setBackgroundColor(i % 2 === 0 ? COLORS.bgAlt : COLORS.bg);
+          row.addDisplayText(`line${i}`, (t) =>
+            t.setText('')
+              .setColor(COLORS.text)
+              .setFontSize(16)
+              .setMargin(4, 6, 0, 6)
+              .setTextWrap('ellipsis')
+          );
+        });
+      }
 
       // --- Footer ---
       layer.addRow((row) => {
-        row.setSize(112, 18).setBackgroundColor(COLORS.black);
+        row.setSize(114, 22).setBackgroundColor(COLORS.black);
         row.addDisplayText('footer', (t) =>
           t.setText('')
             .setColor(COLORS.textDim)
-            .setFontSize(11)
+            .setFontSize(13)
             .setTextAlign('center')
             .setMargin(3, 0, 0, 0)
         );
       });
     })
     .registerOnInitializeHandler((instance) => {
-      rawInstance = instance;
       displayInstance = instance.components || {};
       log.info('Display initialized');
       initConnection();
@@ -170,7 +147,7 @@ const openclawPlugin = (configuration, storage, log) => {
     .registerKnob({ name: 'Scroll' })
     .registerOnChangeHandler((value) => {
       if (state.currentPage === 'agent') {
-        const maxScroll = Math.max(0, state.agent.lines.length - 3);
+        const maxScroll = Math.max(0, state.agent.lines.length - 7);
         state.agent._scrollOffset = Math.round((value / 100) * maxScroll);
         refreshDisplay();
       }
@@ -188,21 +165,21 @@ const openclawPlugin = (configuration, storage, log) => {
     .registerOnDeactivateHandler(() => { ledInstance = null; });
 
   // ---------------------------------------------------------------------------
-  // Connection & event handling
+  // Connection & events
   // ---------------------------------------------------------------------------
 
   function initConnection() {
     const url = storage.get('gatewayUrl') || 'ws://127.0.0.1:18789';
     const token = storage.get('gatewayToken') || '';
 
-    if (client) {
-      client.disconnect();
-    }
-
+    if (client) client.disconnect();
     client = new OpenClawClient(url, token, log);
 
     client.on('connection', (info) => {
       state.update({ connected: info.connected });
+      if (info.connected) {
+        state.addAgentLine('lifecycle', 'Connected');
+      }
       refreshDisplay();
     });
 
@@ -251,11 +228,7 @@ const openclawPlugin = (configuration, storage, log) => {
     client.on('exec.approval.requested', (payload) => {
       if (!payload) return;
       state.updateAgent({
-        pendingApproval: {
-          id: payload.id,
-          command: payload.request?.command || '?',
-          expiresAtMs: payload.expiresAtMs,
-        }
+        pendingApproval: { id: payload.id, command: payload.request?.command || '?', expiresAtMs: payload.expiresAtMs }
       });
       state.addAgentLine('approval', truncate(payload.request?.command, 30));
       refreshDisplay();
@@ -270,7 +243,6 @@ const openclawPlugin = (configuration, storage, log) => {
 
     clearInterval(ledAnimTimer);
     ledAnimTimer = setInterval(() => { ledAnimFrame++; updateLeds(); }, 500);
-
     client.connect();
   }
 
@@ -291,7 +263,7 @@ const openclawPlugin = (configuration, storage, log) => {
   }
 
   // ---------------------------------------------------------------------------
-  // Display rendering
+  // Display rendering — uses .set() on components
   // ---------------------------------------------------------------------------
 
   function refreshDisplay() {
@@ -300,10 +272,14 @@ const openclawPlugin = (configuration, storage, log) => {
 
     try {
       if (!state.connected) {
-        d.status?.set('CONNECTING...');
+        d.status?.set('CONNECTING');
         d.line1?.set('');
-        d.line2?.set('Set gateway token');
-        d.line3?.set('in plugin settings');
+        d.line2?.set('');
+        d.line3?.set('Set gateway token');
+        d.line4?.set('in plugin settings');
+        d.line5?.set('then press Connect');
+        d.line6?.set('');
+        d.line7?.set('');
         d.footer?.set('');
         return;
       }
@@ -322,43 +298,35 @@ const openclawPlugin = (configuration, storage, log) => {
     const { agent } = state;
     const hasApproval = !!agent.pendingApproval;
 
-    // Status text with mood
     const statusMap = {
       idle: 'IDLE',
       running: 'RUNNING',
       thinking: 'THINKING...',
-      talking: 'RESPONDING...',
-      working: 'USING TOOL...',
+      talking: 'RESPONDING',
+      working: 'TOOL...',
       error: 'ERROR',
     };
     d.status?.set(hasApproval ? '\u26a0 APPROVE?' : (statusMap[agent.status] || 'IDLE'));
 
-    // Streaming text — last 3 lines
+    // Show last 7 lines from the text buffer
     const offset = agent._scrollOffset || 0;
     const visible = agent.lines.slice(
-      Math.max(0, agent.lines.length - 3 - offset),
+      Math.max(0, agent.lines.length - 7 - offset),
       agent.lines.length - offset
     );
 
-    const lineIds = ['line1', 'line2', 'line3'];
-    for (let i = 0; i < 3; i++) {
-      const line = visible[i];
-      d[lineIds[i]]?.set(line ? truncate(line.text, 20) : (i === 0 && visible.length === 0 ? 'Waiting...' : ''));
+    for (let i = 1; i <= 7; i++) {
+      const line = visible[i - 1];
+      d[`line${i}`]?.set(line ? truncate(line.text, 18) : (i === 1 && visible.length === 0 ? 'Waiting...' : ''));
     }
 
-    // Footer
-    if (hasApproval) {
-      d.footer?.set('\u25c0 YES        NO \u25b6');
-    } else {
-      d.footer?.set('\u25c0 prev    next \u25b6');
-    }
+    d.footer?.set(hasApproval ? '\u25c0 YES        NO \u25b6' : '\u25c0 prev    next \u25b6');
   }
 
   function renderChannelsPage(d) {
     d.status?.set('CHANNELS');
     d.line1?.set('Loading...');
-    d.line2?.set('');
-    d.line3?.set('');
+    for (let i = 2; i <= 7; i++) d[`line${i}`]?.set('');
     d.footer?.set('\u25c0 prev    next \u25b6');
 
     if (!client) return;
@@ -370,16 +338,16 @@ const openclawPlugin = (configuration, storage, log) => {
       for (const ch of order) {
         for (const acct of (accounts[ch] || [])) {
           const dot = acct.connected ? '\u25cf' : '\u25cb';
-          lines.push(`${dot} ${truncate(labels[ch] || ch, 10)}`);
+          lines.push(`${dot} ${truncate(labels[ch] || ch, 14)}`);
         }
       }
       const ok = lines.filter(l => l.includes('\u25cf')).length;
       d.status?.set(`CHANNELS ${ok}/${lines.length}`);
-      for (let i = 0; i < 3; i++) {
-        d[['line1', 'line2', 'line3'][i]]?.set(lines[i] || '');
+      for (let i = 1; i <= 7; i++) {
+        d[`line${i}`]?.set(lines[i - 1] || '');
       }
     }).catch(() => {
-      d.line1?.set('Error');
+      d.line1?.set('Error loading');
     });
   }
 
