@@ -1,6 +1,6 @@
 {
   "name": "@modue/openclaw",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "OpenClaw control surface — live agent activity, channel health, and physical approve/deny buttons for your AI assistant.",
   "main": "index.js",
   "scripts": {
