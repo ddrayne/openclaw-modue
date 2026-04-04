@@ -222,23 +222,22 @@ describe('Connection', () => {
       conn._teardown();
     });
 
-    it('truncates to the last 500 characters', () => {
+    it('truncates to the last MAX_TEXT_LENGTH characters', () => {
       const conn = freshConnection();
-      const chunk = 'a'.repeat(300);
+      const chunk = 'a'.repeat(500);
       conn._appendText(chunk);
-      conn._appendText(chunk); // now 600 chars
-      assert.equal(conn.currentText.length, 500);
-      // Should keep the *last* 500 chars (all 'a' here, but length matters)
-      assert.equal(conn.currentText, 'a'.repeat(500));
+      conn._appendText(chunk); // now 1000 chars
+      assert.equal(conn.currentText.length, 800);
+      assert.equal(conn.currentText, 'a'.repeat(800));
       conn._teardown();
     });
 
-    it('keeps text exactly at 500 when appending to exactly 500', () => {
+    it('keeps text at MAX_TEXT_LENGTH when appending beyond limit', () => {
       const conn = freshConnection();
-      conn._appendText('x'.repeat(500));
-      assert.equal(conn.currentText.length, 500);
+      conn._appendText('x'.repeat(800));
+      assert.equal(conn.currentText.length, 800);
       conn._appendText('y');
-      assert.equal(conn.currentText.length, 500);
+      assert.equal(conn.currentText.length, 800);
       assert.ok(conn.currentText.endsWith('y'));
       conn._teardown();
     });
