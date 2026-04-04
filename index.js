@@ -44,7 +44,7 @@ const openclawPlugin = (configuration, storage, log) => {
   // ---------------------------------------------------------------------------
   configuration
     .registerDisplay({ name: 'OpenClaw' })
-    .setSize(2, 4)
+    .setSize(4, 2)
     .addLayer((layer) => {
       layer
         .setMargin(3, 3, 3, 3)
