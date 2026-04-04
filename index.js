@@ -11,121 +11,115 @@ const openclawPlugin = (configuration, storage, log) => {
   let ledAnimTimer = null;
 
   // ---------------------------------------------------------------------------
-  // Configuration
+  // Global configuration — persists across restarts via storage
   // ---------------------------------------------------------------------------
   configuration
     .useConfiguration()
     .addInput(
-      { key: 'gatewayUrl', name: 'Gateway URL', description: 'OpenClaw WebSocket URL' },
+      { key: 'gatewayUrl', name: 'Gateway URL', description: 'OpenClaw WebSocket URL (default: ws://127.0.0.1:18789)' },
       'string',
     )
     .addInput(
       { key: 'gatewayToken', name: 'Gateway Token', description: 'OPENCLAW_GATEWAY_TOKEN value' },
       'password',
-    );
+    )
+    .addButton({
+      key: 'connectButton',
+      name: 'Connect',
+      description: 'Connect to OpenClaw gateway',
+      renderer: () => client?.connected ? 'Connected' : 'Connect',
+      handler: async () => {
+        if (client) client.disconnect();
+        initConnection();
+      },
+    });
 
   // ---------------------------------------------------------------------------
-  // Display — static layout, updated via instance.<id>.setText()
+  // Display — 2x2 tile, ~114x114 usable area
+  // Static layout with named text elements updated via instance.<id>.setText()
   // ---------------------------------------------------------------------------
   configuration
     .registerDisplay({ name: 'OpenClaw' })
     .setSize(2, 2)
     .addLayer((layer) => {
       layer
-        .setMargin(2, 2, 2, 2)
+        .setMargin(3, 3, 3, 3)
         .setBorderRadius(4, 4, 4, 4)
         .setBackgroundColor(COLORS.bg);
 
-      // Row 1: Header bar
+      // Header row
       layer.addRow((row) => {
-        row.setSize(116, 20).setBackgroundColor(COLORS.header);
+        row.setSize(108, 18).setBackgroundColor(COLORS.header);
         row.addDisplayText('page', (t) =>
           t.setText('OPENCLAW')
             .setColor(COLORS.white)
-            .setFontSize(10)
+            .setFontSize(9)
             .setFontWeight('bold')
             .setMargin(4, 4, 0, 4)
         );
         row.addDisplayText('status', (t) =>
           t.setText('...')
             .setColor(COLORS.textDim)
-            .setFontSize(9)
+            .setFontSize(8)
             .setTextAlign('right')
             .setMargin(5, 4, 0, 0)
         );
       });
 
-      // Row 2: Main content line 1
+      // Content line 1
       layer.addRow((row) => {
-        row.setSize(116, 18).setBackgroundColor(COLORS.bg);
+        row.setSize(108, 20).setBackgroundColor(COLORS.bg);
         row.addDisplayText('line1', (t) =>
           t.setText('Connecting...')
             .setColor(COLORS.textDim)
             .setFontSize(9)
-            .setMargin(3, 4, 0, 4)
+            .setMargin(4, 4, 0, 4)
             .setTextWrap('ellipsis')
         );
       });
 
-      // Row 3: Main content line 2
+      // Content line 2
       layer.addRow((row) => {
-        row.setSize(116, 18).setBackgroundColor(COLORS.bgAlt);
+        row.setSize(108, 20).setBackgroundColor(COLORS.bgAlt);
         row.addDisplayText('line2', (t) =>
           t.setText('')
             .setColor(COLORS.text)
             .setFontSize(9)
-            .setMargin(3, 4, 0, 4)
+            .setMargin(4, 4, 0, 4)
             .setTextWrap('ellipsis')
         );
       });
 
-      // Row 4: Main content line 3
+      // Content line 3
       layer.addRow((row) => {
-        row.setSize(116, 18).setBackgroundColor(COLORS.bg);
+        row.setSize(108, 20).setBackgroundColor(COLORS.bg);
         row.addDisplayText('line3', (t) =>
           t.setText('')
             .setColor(COLORS.text)
             .setFontSize(9)
-            .setMargin(3, 4, 0, 4)
+            .setMargin(4, 4, 0, 4)
             .setTextWrap('ellipsis')
         );
       });
 
-      // Row 5: Main content line 4
+      // Content line 4 / footer
       layer.addRow((row) => {
-        row.setSize(116, 18).setBackgroundColor(COLORS.bgAlt);
+        row.setSize(108, 20).setBackgroundColor(COLORS.bgAlt);
         row.addDisplayText('line4', (t) =>
-          t.setText('')
-            .setColor(COLORS.textDim)
-            .setFontSize(9)
-            .setMargin(3, 4, 0, 4)
-            .setTextWrap('ellipsis')
-        );
-      });
-
-      // Row 6: Footer
-      layer.addRow((row) => {
-        row.setSize(116, 16).setBackgroundColor(COLORS.black);
-        row.addDisplayText('footer', (t) =>
-          t.setText('')
+          t.setText('\u25c0 prev    next \u25b6')
             .setColor(COLORS.textDim)
             .setFontSize(8)
             .setTextAlign('center')
-            .setMargin(3, 0, 0, 0)
+            .setMargin(5, 0, 0, 0)
         );
       });
     })
     .registerOnInitializeHandler((instance) => {
       displayInstance = instance;
       log.info('Display initialized');
-      initConnection(instance);
+      initConnection();
     })
-    .registerOnConfigurationChangeHandler((prop, instance) => {
-      if (prop.key === 'gatewayUrl' || prop.key === 'gatewayToken') {
-        if (client) client.disconnect();
-        initConnection(instance);
-      }
-    })
+    .registerOnConfigurationChangeHandler(() => {})
     .registerOnDeactivateHandler(() => {
       if (client) client.disconnect();
       clearInterval(ledAnimTimer);
@@ -185,14 +179,9 @@ const openclawPlugin = (configuration, storage, log) => {
   // Connection & events
   // ---------------------------------------------------------------------------
 
-  function initConnection(instance) {
-    const url = instance?.configuration?.gatewayUrl
-      || storage.get('gatewayUrl')
-      || 'ws://127.0.0.1:18789';
-    const token = instance?.configuration?.gatewayToken
-      || storage.get('gatewayToken')
-      || process.env.OPENCLAW_GATEWAY_TOKEN
-      || '';
+  function initConnection() {
+    const url = storage.get('gatewayUrl') || 'ws://127.0.0.1:18789';
+    const token = storage.get('gatewayToken') || '';
 
     client = new OpenClawClient(url, token, log);
 
@@ -324,27 +313,27 @@ const openclawPlugin = (configuration, storage, log) => {
       : COLORS.green
     );
 
-    // Content lines — show last 4 lines from the buffer
+    // Content lines — show last 3 lines from the buffer
     const offset = agent._scrollOffset || 0;
     const visible = agent.lines.slice(
-      Math.max(0, agent.lines.length - 4 - offset),
+      Math.max(0, agent.lines.length - 3 - offset),
       agent.lines.length - offset
     );
 
-    const lineIds = ['line1', 'line2', 'line3', 'line4'];
-    for (let i = 0; i < 4; i++) {
+    const lineIds = ['line1', 'line2', 'line3'];
+    for (let i = 0; i < 3; i++) {
       const line = visible[i];
-      d[lineIds[i]]?.setText(line ? truncate(line.text, 30) : '');
+      d[lineIds[i]]?.setText(line ? truncate(line.text, 25) : '');
       d[lineIds[i]]?.setColor(line ? agentLineColor(line.type) : COLORS.textDim);
     }
 
-    // Footer
+    // Footer line
     if (hasApproval) {
-      d.footer?.setText('\u25c0 APPROVE    DENY \u25b6');
-      d.footer?.setColor(COLORS.amber);
+      d.line4?.setText('\u25c0 APPROVE    DENY \u25b6');
+      d.line4?.setColor(COLORS.amber);
     } else {
-      d.footer?.setText('\u25c0 prev    next \u25b6');
-      d.footer?.setColor(COLORS.textDim);
+      d.line4?.setText('\u25c0 prev    next \u25b6');
+      d.line4?.setColor(COLORS.textDim);
     }
   }
 
@@ -356,9 +345,8 @@ const openclawPlugin = (configuration, storage, log) => {
     d.line1?.setColor(COLORS.textDim);
     d.line2?.setText('');
     d.line3?.setText('');
-    d.line4?.setText('');
-    d.footer?.setText('\u25c0 prev    next \u25b6');
-    d.footer?.setColor(COLORS.textDim);
+    d.line4?.setText('\u25c0 prev    next \u25b6');
+    d.line4?.setColor(COLORS.textDim);
 
     if (!client) return;
     client.rpc('channels.status', {}).then((result) => {
@@ -370,17 +358,17 @@ const openclawPlugin = (configuration, storage, log) => {
         for (const acct of (accounts[ch] || [])) {
           const dot = acct.connected ? '\u25cf' : '\u25cb';
           const name = labels[ch] || ch;
-          lines.push(`${dot} ${truncate(name, 12)} ${acct.connected ? 'ok' : acct.lastError ? 'err' : 'off'}`);
+          lines.push({ text: `${dot} ${truncate(name, 10)} ${acct.connected ? 'ok' : 'off'}`, ok: acct.connected });
         }
       }
-      d.status?.setText(`${lines.filter(l => l.includes('\u25cf')).length}/${lines.length}`);
-      const lineIds = ['line1', 'line2', 'line3', 'line4'];
-      for (let i = 0; i < 4; i++) {
-        d[lineIds[i]]?.setText(lines[i] || '');
-        d[lineIds[i]]?.setColor(lines[i]?.includes('\u25cf') ? COLORS.green : COLORS.textDim);
+      d.status?.setText(`${lines.filter(l => l.ok).length}/${lines.length}`);
+      const lineIds = ['line1', 'line2', 'line3'];
+      for (let i = 0; i < 3; i++) {
+        d[lineIds[i]]?.setText(lines[i]?.text || '');
+        d[lineIds[i]]?.setColor(lines[i]?.ok ? COLORS.green : COLORS.textDim);
       }
     }).catch((err) => {
-      d.line1?.setText(`Error: ${truncate(err.message, 25)}`);
+      d.line1?.setText(`Error: ${truncate(err.message, 20)}`);
       d.line1?.setColor(COLORS.red);
     });
   }
