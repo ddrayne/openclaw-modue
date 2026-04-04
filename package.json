@@ -1,10 +1,18 @@
 {
   "name": "@modue/openclaw",
-  "version": "0.1.0",
-  "description": "OpenClaw control surface — live agent activity, channel health, session browser, and quick commands on your Modue hardware.",
+  "version": "0.2.0",
+  "description": "OpenClaw control surface — live agent activity, channel health, and physical approve/deny buttons for your AI assistant.",
   "main": "index.js",
   "author": "ddrayne",
   "license": "ISC",
   "devMode": true,
-  "os": "darwin"
+  "os": "darwin",
+  "keywords": [
+    "openclaw",
+    "ai",
+    "assistant",
+    "dashboard",
+    "agent",
+    "darwin"
+  ]
 }

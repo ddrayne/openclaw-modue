@@ -1,31 +1,17 @@
 const { OpenClawClient } = require('./lib/ws-client');
 const { State } = require('./lib/state');
-const { COLORS } = require('./lib/renderer');
-const { AgentLivePage } = require('./lib/pages/agent-live');
-const { ChannelsPage } = require('./lib/pages/channels');
-const { SessionsPage } = require('./lib/pages/sessions');
-const { CommandsPage } = require('./lib/pages/commands');
-
-const DISPLAY_W = 240; // 2-row display width
-const DISPLAY_H = 120; // 2-row display height
+const { COLORS, truncate, timeAgo, agentLineColor } = require('./lib/renderer');
 
 const openclawPlugin = (configuration, storage, log) => {
-  // ---------------------------------------------------------------------------
-  // State & client
-  // ---------------------------------------------------------------------------
   const state = new State();
   let client = null;
-  let pages = {};
-  let currentPageObj = null;
   let displayInstance = null;
   let ledInstance = null;
-
-  // LED animation state
   let ledAnimFrame = 0;
   let ledAnimTimer = null;
 
   // ---------------------------------------------------------------------------
-  // Configuration — gateway URL and token
+  // Configuration
   // ---------------------------------------------------------------------------
   configuration
     .useConfiguration()
@@ -36,84 +22,96 @@ const openclawPlugin = (configuration, storage, log) => {
     .addInput(
       { key: 'gatewayToken', name: 'Gateway Token', description: 'OPENCLAW_GATEWAY_TOKEN value' },
       'password',
-    )
-    .addInput(
-      { key: 'cmd1Label', name: 'Command 1 - Label' },
-      'string',
-    )
-    .addDropdown({
-      key: 'cmd1Action',
-      name: 'Command 1 - Action',
-      source: () => [
-        { label: 'Trigger Cron Job', value: 'cron.run' },
-        { label: 'Send Agent Message', value: 'agent' },
-        { label: 'Health Check', value: 'health' },
-        { label: 'Tail Logs', value: 'logs.tail' },
-      ],
-    })
-    .addInput(
-      { key: 'cmd1Param', name: 'Command 1 - Parameter', description: 'Cron job ID or message text' },
-      'string',
-    )
-    .addInput({ key: 'cmd2Label', name: 'Command 2 - Label' }, 'string')
-    .addDropdown({
-      key: 'cmd2Action',
-      name: 'Command 2 - Action',
-      source: () => [
-        { label: 'Trigger Cron Job', value: 'cron.run' },
-        { label: 'Send Agent Message', value: 'agent' },
-        { label: 'Health Check', value: 'health' },
-        { label: 'Tail Logs', value: 'logs.tail' },
-      ],
-    })
-    .addInput(
-      { key: 'cmd2Param', name: 'Command 2 - Parameter', description: 'Cron job ID or message text' },
-      'string',
-    )
-    .addInput({ key: 'cmd3Label', name: 'Command 3 - Label' }, 'string')
-    .addDropdown({
-      key: 'cmd3Action',
-      name: 'Command 3 - Action',
-      source: () => [
-        { label: 'Trigger Cron Job', value: 'cron.run' },
-        { label: 'Send Agent Message', value: 'agent' },
-        { label: 'Health Check', value: 'health' },
-        { label: 'Tail Logs', value: 'logs.tail' },
-      ],
-    })
-    .addInput(
-      { key: 'cmd3Param', name: 'Command 3 - Parameter', description: 'Cron job ID or message text' },
-      'string',
     );
 
   // ---------------------------------------------------------------------------
-  // Display widget — max 2 rows (setSize takes columns, rows)
+  // Display — static layout, updated via instance.<id>.setText()
   // ---------------------------------------------------------------------------
   configuration
     .registerDisplay({ name: 'OpenClaw' })
     .setSize(2, 2)
     .addLayer((layer) => {
-      // Initial "connecting" screen
-      layer.setBackgroundColor(COLORS.bg);
+      layer
+        .setMargin(2, 2, 2, 2)
+        .setBorderRadius(4, 4, 4, 4)
+        .setBackgroundColor(COLORS.bg);
+
+      // Row 1: Header bar
       layer.addRow((row) => {
-        row.setSize(DISPLAY_W, 18).setBackgroundColor(COLORS.header);
-        row.addDisplayText('boot-title', (t) =>
+        row.setSize(116, 20).setBackgroundColor(COLORS.header);
+        row.addDisplayText('page', (t) =>
           t.setText('OPENCLAW')
             .setColor(COLORS.white)
-            .setFontSize(12)
+            .setFontSize(10)
             .setFontWeight('bold')
-            .setTextAlign('center')
-            .setMargin(3, 0, 0, 0)
+            .setMargin(4, 4, 0, 4)
+        );
+        row.addDisplayText('status', (t) =>
+          t.setText('...')
+            .setColor(COLORS.textDim)
+            .setFontSize(9)
+            .setTextAlign('right')
+            .setMargin(5, 4, 0, 0)
         );
       });
+
+      // Row 2: Main content line 1
       layer.addRow((row) => {
-        row.setSize(DISPLAY_W, 40).setBackgroundColor(COLORS.bg);
-        row.addDisplayText('boot-msg', (t) =>
-          t.setText('Connecting to gateway...')
+        row.setSize(116, 18).setBackgroundColor(COLORS.bg);
+        row.addDisplayText('line1', (t) =>
+          t.setText('Connecting...')
             .setColor(COLORS.textDim)
-            .setFontSize(10)
+            .setFontSize(9)
+            .setMargin(3, 4, 0, 4)
+            .setTextWrap('ellipsis')
+        );
+      });
+
+      // Row 3: Main content line 2
+      layer.addRow((row) => {
+        row.setSize(116, 18).setBackgroundColor(COLORS.bgAlt);
+        row.addDisplayText('line2', (t) =>
+          t.setText('')
+            .setColor(COLORS.text)
+            .setFontSize(9)
+            .setMargin(3, 4, 0, 4)
+            .setTextWrap('ellipsis')
+        );
+      });
+
+      // Row 4: Main content line 3
+      layer.addRow((row) => {
+        row.setSize(116, 18).setBackgroundColor(COLORS.bg);
+        row.addDisplayText('line3', (t) =>
+          t.setText('')
+            .setColor(COLORS.text)
+            .setFontSize(9)
+            .setMargin(3, 4, 0, 4)
+            .setTextWrap('ellipsis')
+        );
+      });
+
+      // Row 5: Main content line 4
+      layer.addRow((row) => {
+        row.setSize(116, 18).setBackgroundColor(COLORS.bgAlt);
+        row.addDisplayText('line4', (t) =>
+          t.setText('')
+            .setColor(COLORS.textDim)
+            .setFontSize(9)
+            .setMargin(3, 4, 0, 4)
+            .setTextWrap('ellipsis')
+        );
+      });
+
+      // Row 6: Footer
+      layer.addRow((row) => {
+        row.setSize(116, 16).setBackgroundColor(COLORS.black);
+        row.addDisplayText('footer', (t) =>
+          t.setText('')
+            .setColor(COLORS.textDim)
+            .setFontSize(8)
             .setTextAlign('center')
-            .setMargin(12, 0, 0, 0)
+            .setMargin(3, 0, 0, 0)
         );
       });
     })
@@ -123,129 +121,68 @@ const openclawPlugin = (configuration, storage, log) => {
       initConnection(instance);
     })
     .registerOnConfigurationChangeHandler((prop, instance) => {
-      log.info(`Config changed: ${prop.key} = ${JSON.stringify(prop.value)}`);
       if (prop.key === 'gatewayUrl' || prop.key === 'gatewayToken') {
-        // Reconnect with new credentials
         if (client) client.disconnect();
         initConnection(instance);
-      }
-      if (prop.key.startsWith('cmd')) {
-        syncCommandSlots(instance);
       }
     })
     .registerOnDeactivateHandler(() => {
       if (client) client.disconnect();
       clearInterval(ledAnimTimer);
-      log.info('Display deactivated');
     });
 
   // ---------------------------------------------------------------------------
-  // Keys — Page nav (prev/next) + context-sensitive actions
+  // Keys
   // ---------------------------------------------------------------------------
   configuration
-    .registerKey({ name: 'Prev Page / Approve' })
-    .registerOnInitializeHandler((instance) => {
-      log.info(`Key PrevPage/Approve initialized: ${instance.id}`);
-    })
+    .registerKey({ name: 'Prev / Approve' })
     .registerOnKeyDownHandler(() => {
-      if (state.currentPage === 'agent') {
-        // On agent page: Approve button
-        if (state.agent.pendingApproval) {
-          pages.agent?.onApprove();
-          return;
-        }
-      }
-      if (state.currentPage === 'sessions' && state.sessions.detailView) {
-        pages.sessions?.onWatch();
-        return;
-      }
-      // Default: previous page
-      switchPage(state.prevPage());
-    });
-
-  configuration
-    .registerKey({ name: 'Next Page / Deny' })
-    .registerOnInitializeHandler((instance) => {
-      log.info(`Key NextPage/Deny initialized: ${instance.id}`);
-    })
-    .registerOnKeyDownHandler(() => {
-      if (state.currentPage === 'agent') {
-        // On agent page: Deny button
-        if (state.agent.pendingApproval) {
-          pages.agent?.onDeny();
-          return;
-        }
-      }
-      if (state.currentPage === 'sessions' && state.sessions.detailView) {
-        pages.sessions?.onBack();
-        return;
-      }
-      // Default: next page
-      switchPage(state.nextPage());
-    });
-
-  configuration
-    .registerKey({ name: 'Action / Select' })
-    .registerOnInitializeHandler((instance) => {
-      log.info(`Key Action/Select initialized: ${instance.id}`);
-    })
-    .registerOnKeyDownHandler(() => {
-      if (state.currentPage === 'sessions') {
-        pages.sessions?.onSelect();
-      } else if (state.currentPage === 'channels') {
-        pages.channels?.onToggle();
-      } else if (state.currentPage === 'commands') {
-        // Use knob position to determine which slot
-        // For now, fire slot 0
-        pages.commands?.onKey(0);
-      }
-      refreshDisplay();
-    });
-
-  // Command slot keys (1-5)
-  for (let i = 0; i < 5; i++) {
-    configuration
-      .registerKey({ name: `Cmd ${i + 1}` })
-      .registerOnKeyDownHandler(() => {
-        if (state.currentPage === 'commands') {
-          pages.commands?.onKey(i);
-        }
+      if (state.agent.pendingApproval) {
+        approveExec();
+      } else {
+        state.prevPage();
         refreshDisplay();
-      });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Knob — context-sensitive scrolling
-  // ---------------------------------------------------------------------------
-  configuration
-    .registerKnob({ name: 'Scroll / Navigate' })
-    .registerOnInitializeHandler((instance) => {
-      log.info(`Knob initialized: ${instance.id}`);
-    })
-    .registerOnChangeHandler((value) => {
-      const page = pages[state.currentPage];
-      if (page && typeof page.onScroll === 'function') {
-        page.onScroll(value);
       }
-      refreshDisplay();
+    });
+
+  configuration
+    .registerKey({ name: 'Next / Deny' })
+    .registerOnKeyDownHandler(() => {
+      if (state.agent.pendingApproval) {
+        denyExec();
+      } else {
+        state.nextPage();
+        refreshDisplay();
+      }
     });
 
   // ---------------------------------------------------------------------------
-  // LED cluster — status indicator
+  // Knob
   // ---------------------------------------------------------------------------
   configuration
-    .registerLedCluster({ name: 'Status LEDs' })
+    .registerKnob({ name: 'Scroll' })
+    .registerOnChangeHandler((value) => {
+      // Scroll agent text buffer
+      if (state.currentPage === 'agent') {
+        const maxScroll = Math.max(0, state.agent.lines.length - 4);
+        state.agent._scrollOffset = Math.round((value / 100) * maxScroll);
+        refreshDisplay();
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // LEDs
+  // ---------------------------------------------------------------------------
+  configuration
+    .registerLedCluster({ name: 'Status' })
     .registerOnInitializeHandler((instance) => {
       ledInstance = instance;
-      log.info(`LED cluster initialized with ${instance.numberOfLeds} LEDs`);
       updateLeds();
     })
-    .registerOnDeactivateHandler(() => {
-      ledInstance = null;
-    });
+    .registerOnDeactivateHandler(() => { ledInstance = null; });
 
   // ---------------------------------------------------------------------------
-  // Internal functions
+  // Connection & events
   // ---------------------------------------------------------------------------
 
   function initConnection(instance) {
@@ -257,160 +194,220 @@ const openclawPlugin = (configuration, storage, log) => {
       || process.env.OPENCLAW_GATEWAY_TOKEN
       || '';
 
-    if (!token) {
-      log.warn('No gateway token configured. Set it in plugin settings.');
-    }
-
     client = new OpenClawClient(url, token, log);
 
-    // Initialize pages
-    pages = {
-      agent: new AgentLivePage(state, client, log),
-      channels: new ChannelsPage(state, client, log),
-      sessions: new SessionsPage(state, client, log),
-      commands: new CommandsPage(state, client, log, storage),
-    };
-
-    // Listen for connection state
     client.on('connection', (info) => {
       state.update({ connected: info.connected });
-      if (info.connected) {
-        log.info('Connected — activating agent page');
-        switchPage('agent');
-        syncCommandSlots(instance);
+      refreshDisplay();
+    });
+
+    client.on('agent', (evt) => {
+      if (!evt) return;
+      if (evt.stream === 'lifecycle') {
+        if (evt.data?.phase === 'start') {
+          state.updateAgent({ status: 'running', runId: evt.runId });
+          state.addAgentLine('lifecycle', 'Run started');
+        } else if (evt.data?.phase === 'end') {
+          state.updateAgent({ status: 'idle', runId: null });
+          state.addAgentLine('lifecycle', 'Run completed');
+        } else if (evt.data?.phase === 'error') {
+          state.updateAgent({ status: 'error' });
+          state.addAgentLine('error', `Error: ${truncate(String(evt.data?.error), 35)}`);
+        }
+      } else if (evt.stream === 'thinking') {
+        const text = evt.data?.thinking || evt.data?.delta || '';
+        if (text) {
+          const lastLine = text.split('\n').pop();
+          state.addAgentLine('thinking', truncate(lastLine, 40));
+        }
+      } else if (evt.stream === 'assistant') {
+        const delta = evt.data?.delta || '';
+        if (delta) {
+          const lines = state.agent.lines;
+          const last = lines[lines.length - 1];
+          if (last && last.type === 'assistant') {
+            last.text = truncate(last.text + delta, 100);
+          } else {
+            state.addAgentLine('assistant', delta);
+          }
+        }
+      } else if (evt.stream === 'tool') {
+        if (evt.data?.phase === 'start') {
+          state.addAgentLine('tool', `\u{1f527} ${evt.data?.name || 'tool'}`);
+        } else if (evt.data?.phase === 'end') {
+          state.addAgentLine('tool-end', '  \u2713 done');
+        }
       }
       refreshDisplay();
     });
 
-    // State change triggers re-render
-    state.setOnChange(() => {
+    client.on('exec.approval.requested', (payload) => {
+      if (!payload) return;
+      state.updateAgent({
+        pendingApproval: {
+          id: payload.id,
+          command: payload.request?.command || 'unknown',
+          expiresAtMs: payload.expiresAtMs,
+        }
+      });
+      state.addAgentLine('approval', `\u26a0 APPROVE? ${truncate(payload.request?.command, 30)}`);
       refreshDisplay();
-      updateLeds();
     });
 
-    // Start LED animation timer
+    client.on('exec.approval.resolved', (payload) => {
+      if (state.agent.pendingApproval?.id === payload?.id) {
+        state.updateAgent({ pendingApproval: null });
+        refreshDisplay();
+      }
+    });
+
+    // LED animation
     clearInterval(ledAnimTimer);
-    ledAnimTimer = setInterval(() => {
-      ledAnimFrame++;
-      updateLeds();
-    }, 500);
+    ledAnimTimer = setInterval(() => { ledAnimFrame++; updateLeds(); }, 500);
 
     client.connect();
   }
 
-  function switchPage(pageName) {
-    // Deactivate current page
-    if (currentPageObj && typeof currentPageObj.deactivate === 'function') {
-      currentPageObj.deactivate();
-    }
-    state.currentPage = pageName;
-    currentPageObj = pages[pageName];
-    if (currentPageObj && typeof currentPageObj.activate === 'function') {
-      currentPageObj.activate();
-    }
-    refreshDisplay();
+  function approveExec() {
+    const approval = state.agent.pendingApproval;
+    if (!approval || !client) return;
+    client.rpc('exec.approval.resolve', { id: approval.id, decision: 'allow-once' })
+      .then(() => {
+        state.updateAgent({ pendingApproval: null });
+        state.addAgentLine('lifecycle', '\u2713 Approved');
+        refreshDisplay();
+      })
+      .catch((err) => log.error(`Approve failed: ${err.message}`));
   }
+
+  function denyExec() {
+    const approval = state.agent.pendingApproval;
+    if (!approval || !client) return;
+    client.rpc('exec.approval.resolve', { id: approval.id, decision: 'deny' })
+      .then(() => {
+        state.updateAgent({ pendingApproval: null });
+        state.addAgentLine('lifecycle', '\u2717 Denied');
+        refreshDisplay();
+      })
+      .catch((err) => log.error(`Deny failed: ${err.message}`));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Display updates — sets text on pre-registered elements
+  // ---------------------------------------------------------------------------
 
   function refreshDisplay() {
     if (!displayInstance) return;
-
-    const page = pages[state.currentPage];
-    if (!page) return;
-
-    // The Modue display API uses a builder pattern — we rebuild the display
-    // content each time by calling render on the current page.
-    // Since the display was registered with addLayer, we update it by
-    // re-rendering. The Modue SDK handles the diff.
     try {
-      displayInstance.clearLayers?.();
-      displayInstance.addLayer?.((layer) => {
-        layer.setBackgroundColor(COLORS.bg);
-
-        if (!state.connected) {
-          layer.addRow((row) => {
-            row.setSize(DISPLAY_W, 18).setBackgroundColor(COLORS.header);
-            row.addDisplayText('dc-title', (t) =>
-              t.setText('OPENCLAW')
-                .setColor(COLORS.white)
-                .setFontSize(12)
-                .setFontWeight('bold')
-                .setTextAlign('center')
-                .setMargin(3, 0, 0, 0)
-            );
-          });
-          layer.addRow((row) => {
-            row.setSize(DISPLAY_W, 40).setBackgroundColor(COLORS.bg);
-            row.addDisplayText('dc-msg', (t) =>
-              t.setText('Connecting...')
-                .setColor(COLORS.amber)
-                .setFontSize(10)
-                .setTextAlign('center')
-                .setMargin(12, 0, 0, 0)
-            );
-          });
-          return;
-        }
-
-        page.render(layer, DISPLAY_W, DISPLAY_H);
-      });
+      if (state.currentPage === 'agent') {
+        renderAgentPage();
+      } else if (state.currentPage === 'channels') {
+        renderChannelsPage();
+      }
     } catch (err) {
       log.error(`Render error: ${err.message}`);
     }
   }
 
-  function updateLeds() {
-    if (!ledInstance) return;
+  function renderAgentPage() {
+    const d = displayInstance;
+    const { agent } = state;
+    const hasApproval = !!agent.pendingApproval;
 
-    const page = pages[state.currentPage];
-    const ledData = page?.getLedColors?.() || 'dim';
-    const numLeds = ledInstance.numberOfLeds || 8;
+    // Header
+    d.page?.setText('AGENT');
+    d.page?.setColor(COLORS.white);
+    d.status?.setText(agent.status.toUpperCase());
+    d.status?.setColor(
+      agent.status === 'running' ? COLORS.blue
+      : agent.status === 'error' ? COLORS.red
+      : COLORS.green
+    );
 
-    let colors;
-    if (Array.isArray(ledData)) {
-      // Direct color array from page
-      colors = Array.from({ length: numLeds }, (_, i) => ledData[i] || COLORS.textDim);
-    } else if (ledData === 'green') {
-      colors = Array(numLeds).fill(`${COLORS.green}FF`);
-    } else if (ledData === 'red') {
-      colors = Array(numLeds).fill(`${COLORS.red}FF`);
-    } else if (ledData === 'blue-pulse') {
-      const brightness = ledAnimFrame % 2 === 0 ? 'FF' : '66';
-      colors = Array(numLeds).fill(`${COLORS.blue}${brightness}`);
-    } else if (ledData === 'amber-flash') {
-      const on = ledAnimFrame % 2 === 0;
-      colors = Array(numLeds).fill(on ? `${COLORS.amber}FF` : '#00000000');
-    } else {
-      // dim
-      colors = Array(numLeds).fill(`${COLORS.textDim}44`);
+    // Content lines — show last 4 lines from the buffer
+    const offset = agent._scrollOffset || 0;
+    const visible = agent.lines.slice(
+      Math.max(0, agent.lines.length - 4 - offset),
+      agent.lines.length - offset
+    );
+
+    const lineIds = ['line1', 'line2', 'line3', 'line4'];
+    for (let i = 0; i < 4; i++) {
+      const line = visible[i];
+      d[lineIds[i]]?.setText(line ? truncate(line.text, 30) : '');
+      d[lineIds[i]]?.setColor(line ? agentLineColor(line.type) : COLORS.textDim);
     }
 
-    try {
-      ledInstance.set(colors);
-    } catch (err) {
-      log.error(`LED error: ${err.message}`);
+    // Footer
+    if (hasApproval) {
+      d.footer?.setText('\u25c0 APPROVE    DENY \u25b6');
+      d.footer?.setColor(COLORS.amber);
+    } else {
+      d.footer?.setText('\u25c0 prev    next \u25b6');
+      d.footer?.setColor(COLORS.textDim);
     }
   }
 
-  function syncCommandSlots(instance) {
-    if (!instance?.configuration) return;
-    const slots = [];
-    for (let i = 1; i <= 3; i++) {
-      const label = instance.configuration[`cmd${i}Label`];
-      const action = instance.configuration[`cmd${i}Action`];
-      const param = instance.configuration[`cmd${i}Param`];
-      if (label && action) {
-        slots.push({
-          label,
-          actionType: action,
-          params: action === 'cron.run'
-            ? { jobId: param }
-            : action === 'agent'
-            ? { message: param }
-            : {},
-        });
+  function renderChannelsPage() {
+    const d = displayInstance;
+    d.page?.setText('CHANNELS');
+    d.status?.setText('');
+    d.line1?.setText('Fetching...');
+    d.line1?.setColor(COLORS.textDim);
+    d.line2?.setText('');
+    d.line3?.setText('');
+    d.line4?.setText('');
+    d.footer?.setText('\u25c0 prev    next \u25b6');
+    d.footer?.setColor(COLORS.textDim);
+
+    if (!client) return;
+    client.rpc('channels.status', {}).then((result) => {
+      const accounts = result?.channelAccounts || {};
+      const labels = result?.channelLabels || {};
+      const order = result?.channelOrder || Object.keys(accounts);
+      const lines = [];
+      for (const ch of order) {
+        for (const acct of (accounts[ch] || [])) {
+          const dot = acct.connected ? '\u25cf' : '\u25cb';
+          const name = labels[ch] || ch;
+          lines.push(`${dot} ${truncate(name, 12)} ${acct.connected ? 'ok' : acct.lastError ? 'err' : 'off'}`);
+        }
       }
+      d.status?.setText(`${lines.filter(l => l.includes('\u25cf')).length}/${lines.length}`);
+      const lineIds = ['line1', 'line2', 'line3', 'line4'];
+      for (let i = 0; i < 4; i++) {
+        d[lineIds[i]]?.setText(lines[i] || '');
+        d[lineIds[i]]?.setColor(lines[i]?.includes('\u25cf') ? COLORS.green : COLORS.textDim);
+      }
+    }).catch((err) => {
+      d.line1?.setText(`Error: ${truncate(err.message, 25)}`);
+      d.line1?.setColor(COLORS.red);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // LEDs
+  // ---------------------------------------------------------------------------
+
+  function updateLeds() {
+    if (!ledInstance) return;
+    const numLeds = ledInstance.numberOfLeds || 8;
+    const { agent } = state;
+    let colors;
+
+    if (agent.pendingApproval) {
+      const on = ledAnimFrame % 2 === 0;
+      colors = Array(numLeds).fill(on ? `${COLORS.amber}FF` : '#00000000');
+    } else if (agent.status === 'running') {
+      const brightness = ledAnimFrame % 2 === 0 ? 'FF' : '66';
+      colors = Array(numLeds).fill(`${COLORS.blue}${brightness}`);
+    } else if (agent.status === 'error') {
+      colors = Array(numLeds).fill(`${COLORS.red}FF`);
+    } else {
+      colors = Array(numLeds).fill(`${COLORS.green}FF`);
     }
-    pages.commands?.saveSlots(slots);
+
+    try { ledInstance.set(colors); } catch {}
   }
 };
 
