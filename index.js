@@ -115,7 +115,7 @@ const openclawPlugin = (configuration, storage, log) => {
       });
     })
     .registerOnInitializeHandler((instance) => {
-      displayInstance = instance;
+      displayInstance = instance.components || {};
       log.info('Display initialized');
       initConnection();
     })
@@ -303,15 +303,8 @@ const openclawPlugin = (configuration, storage, log) => {
     const { agent } = state;
     const hasApproval = !!agent.pendingApproval;
 
-    // Header
-    d.page?.setText('AGENT');
-    d.page?.setColor(COLORS.white);
-    d.status?.setText(agent.status.toUpperCase());
-    d.status?.setColor(
-      agent.status === 'running' ? COLORS.blue
-      : agent.status === 'error' ? COLORS.red
-      : COLORS.green
-    );
+    d.page?.set('AGENT');
+    d.status?.set(agent.status.toUpperCase());
 
     // Content lines — show last 3 lines from the buffer
     const offset = agent._scrollOffset || 0;
@@ -323,30 +316,20 @@ const openclawPlugin = (configuration, storage, log) => {
     const lineIds = ['line1', 'line2', 'line3'];
     for (let i = 0; i < 3; i++) {
       const line = visible[i];
-      d[lineIds[i]]?.setText(line ? truncate(line.text, 25) : '');
-      d[lineIds[i]]?.setColor(line ? agentLineColor(line.type) : COLORS.textDim);
+      d[lineIds[i]]?.set(line ? truncate(line.text, 25) : '');
     }
 
-    // Footer line
-    if (hasApproval) {
-      d.line4?.setText('\u25c0 APPROVE    DENY \u25b6');
-      d.line4?.setColor(COLORS.amber);
-    } else {
-      d.line4?.setText('\u25c0 prev    next \u25b6');
-      d.line4?.setColor(COLORS.textDim);
-    }
+    d.line4?.set(hasApproval ? '\u25c0 APPROVE    DENY \u25b6' : '\u25c0 prev    next \u25b6');
   }
 
   function renderChannelsPage() {
     const d = displayInstance;
-    d.page?.setText('CHANNELS');
-    d.status?.setText('');
-    d.line1?.setText('Fetching...');
-    d.line1?.setColor(COLORS.textDim);
-    d.line2?.setText('');
-    d.line3?.setText('');
-    d.line4?.setText('\u25c0 prev    next \u25b6');
-    d.line4?.setColor(COLORS.textDim);
+    d.page?.set('CHANNELS');
+    d.status?.set('');
+    d.line1?.set('Fetching...');
+    d.line2?.set('');
+    d.line3?.set('');
+    d.line4?.set('\u25c0 prev    next \u25b6');
 
     if (!client) return;
     client.rpc('channels.status', {}).then((result) => {
@@ -358,18 +341,16 @@ const openclawPlugin = (configuration, storage, log) => {
         for (const acct of (accounts[ch] || [])) {
           const dot = acct.connected ? '\u25cf' : '\u25cb';
           const name = labels[ch] || ch;
-          lines.push({ text: `${dot} ${truncate(name, 10)} ${acct.connected ? 'ok' : 'off'}`, ok: acct.connected });
+          lines.push(`${dot} ${truncate(name, 10)} ${acct.connected ? 'ok' : 'off'}`);
         }
       }
-      d.status?.setText(`${lines.filter(l => l.ok).length}/${lines.length}`);
+      d.status?.set(`${lines.filter(l => l.includes('\u25cf')).length}/${lines.length}`);
       const lineIds = ['line1', 'line2', 'line3'];
       for (let i = 0; i < 3; i++) {
-        d[lineIds[i]]?.setText(lines[i]?.text || '');
-        d[lineIds[i]]?.setColor(lines[i]?.ok ? COLORS.green : COLORS.textDim);
+        d[lineIds[i]]?.set(lines[i] || '');
       }
     }).catch((err) => {
-      d.line1?.setText(`Error: ${truncate(err.message, 20)}`);
-      d.line1?.setColor(COLORS.red);
+      d.line1?.set(`Error: ${truncate(err.message, 20)}`);
     });
   }
 
