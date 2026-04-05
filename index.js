@@ -148,9 +148,31 @@ const openclawPlugin = (configuration, storage, log) => {
   // -------------------------------------------------------------------------
   // LEDs
   // -------------------------------------------------------------------------
-  let ledInstance = null;
+  // Track ALL LED instances (Modue may assign multiple physical strips to one widget)
+  // Deactivate handler receives an id string, so we use a Map keyed by id.
+  const ledInstances = new Map(); // id → instance
   let ledAnimFrame = 0;
   let ledAnimTimer = null;
+
+  function startLedTimer() {
+    if (ledAnimTimer) return; // already running
+    ledAnimFrame = 0;
+    ledAnimTimer = setInterval(() => {
+      ledAnimFrame++;
+      if (ledInstances.size === 0) return;
+      const conn = Connection.getInstance(storage, log);
+      for (const inst of ledInstances.values()) {
+        const n = inst.numberOfLeds || 8;
+        try {
+          inst.set(conn.getLedColors(n, ledAnimFrame));
+        } catch (_) { /* noop */ }
+      }
+    }, 500);
+  }
+
+  function stopLedTimer() {
+    if (ledAnimTimer) { clearInterval(ledAnimTimer); ledAnimTimer = null; }
+  }
 
   configuration
     .registerLedCluster({ name: 'Status' })
@@ -161,21 +183,14 @@ const openclawPlugin = (configuration, storage, log) => {
       } catch (_) { /* noop */ }
     })
     .registerOnInitializeHandler((instance) => {
-      ledInstance = instance;
-      ledAnimFrame = 0;
-      ledAnimTimer = setInterval(() => {
-        ledAnimFrame++;
-        if (!ledInstance) return;
-        const conn = Connection.getInstance(storage, log);
-        const n = ledInstance.numberOfLeds || 8;
-        try {
-          ledInstance.set(conn.getLedColors(n, ledAnimFrame));
-        } catch (_) { /* noop */ }
-      }, 500);
+      ledInstances.set(instance.id, instance);
+      log.info(`LED instance added: ${instance.id} (total: ${ledInstances.size}, leds: ${instance.numberOfLeds})`);
+      startLedTimer();
     })
-    .registerOnDeactivateHandler(() => {
-      if (ledAnimTimer) { clearInterval(ledAnimTimer); ledAnimTimer = null; }
-      ledInstance = null;
+    .registerOnDeactivateHandler((id) => {
+      ledInstances.delete(id);
+      log.info(`LED instance removed: ${id} (total: ${ledInstances.size})`);
+      if (ledInstances.size === 0) stopLedTimer();
     });
 };
 
