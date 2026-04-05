@@ -78,8 +78,9 @@ const openclawPlugin = (configuration, storage, log) => {
           log.info('[key] Left: aborted generation');
         }).catch((e) => log.error(`Abort failed: ${e.message}`));
       } else {
-        // Wake the assistant
-        conn.rpc('wake', { text: 'modue button pressed' }).catch(() => {});
+        // Wake the assistant with context about what's on display
+        const ctx = conn.displayText ? ` (showing: ${conn.displayText.slice(0, 50).replace(/\n/g, ' ')})` : '';
+        conn.rpc('wake', { text: `[modue] Left button pressed${ctx}` }).catch(() => {});
         log.info('[key] Left: wake');
       }
     });
