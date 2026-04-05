@@ -40,6 +40,26 @@ const openclawPlugin = (configuration, storage, log) => {
   registerWidgets(configuration, storage, log);
 
   // -------------------------------------------------------------------------
+  // Slider
+  // -------------------------------------------------------------------------
+  configuration
+    .registerSlider({ name: 'OpenClaw' })
+    .registerOnInitializeHandler((instance) => {
+      const conn = Connection.getInstance(storage, log);
+      conn._sliderInstance = instance;
+      if (!conn.connected && !conn._client) {
+        conn.connect();
+      }
+    })
+    .registerOnChangeHandler((value, _instance) => {
+      const conn = Connection.getInstance(storage, log);
+      conn.sendSliderChanged(value);
+    })
+    .registerOnDeactivateHandler(() => {
+      try { Connection.getInstance()._sliderInstance = null; } catch (_) {}
+    });
+
+  // -------------------------------------------------------------------------
   // Keys
   // -------------------------------------------------------------------------
   configuration

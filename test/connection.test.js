@@ -1417,4 +1417,52 @@ describe('Connection', () => {
       conn._teardown();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 22. Slider
+  // -------------------------------------------------------------------------
+  describe('Slider', () => {
+    it('stores slider value from gateway', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.slider.set', { value: 75 });
+      assert.equal(conn.sliderValue, 75);
+      conn._teardown();
+    });
+
+    it('clamps slider value to 0-100', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.slider.set', { value: 150 });
+      assert.equal(conn.sliderValue, 100);
+      client.emit('modue.slider.set', { value: -10 });
+      assert.equal(conn.sliderValue, 0);
+      conn._teardown();
+    });
+
+    it('notifies subscribers on slider change', () => {
+      const { conn, client } = connectedPair();
+      let notified = false;
+      conn.onChange(() => { notified = true; });
+      client.emit('modue.slider.set', { value: 50 });
+      assert.ok(notified);
+      conn._teardown();
+    });
+
+    it('drives physical slider instance', () => {
+      const { conn, client } = connectedPair();
+      let setTo = null;
+      conn._sliderInstance = { set: (v) => { setTo = v; } };
+      client.emit('modue.slider.set', { value: 42 });
+      assert.equal(setTo, 42);
+      conn._teardown();
+    });
+
+    it('ignores invalid payloads', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.slider.set', { value: 'hello' });
+      assert.equal(conn.sliderValue, 0); // unchanged
+      client.emit('modue.slider.set', null);
+      assert.equal(conn.sliderValue, 0);
+      conn._teardown();
+    });
+  });
 });
