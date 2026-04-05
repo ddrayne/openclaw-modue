@@ -88,6 +88,12 @@ const openclawPlugin = (configuration, storage, log) => {
 
   configuration
     .registerLedCluster({ name: 'Status' })
+    .useSystemMonitorResources((resources, _instance) => {
+      try {
+        const conn = Connection.getInstance(storage, log);
+        conn.updateSystemStats(resources);
+      } catch (_) { /* noop */ }
+    })
     .registerOnInitializeHandler((instance) => {
       ledInstance = instance;
       ledAnimFrame = 0;

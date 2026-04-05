@@ -1083,4 +1083,107 @@ describe('Connection', () => {
       conn._teardown();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 18. System stats
+  // -------------------------------------------------------------------------
+  describe('systemStats', () => {
+    it('initializes with zeroed stats', () => {
+      const conn = freshConnection();
+      assert.deepEqual(conn.systemStats, {
+        cpu: 0, cpuTemp: 0,
+        gpu: 0, gpuTemp: 0,
+        ram: 0, disk: 0,
+        netDown: 0, netUp: 0,
+      });
+      conn._teardown();
+    });
+
+    it('updateSystemStats extracts fields from SDK payload', () => {
+      const conn = freshConnection();
+      conn.updateSystemStats({
+        cpu: { usageInPercentage: 42, temperatureInCelsius: 65, clockInMhz: 3200, fanSpeedInRpm: 1200 },
+        gpu: { usageInPercentage: 88, temperatureInCelsius: 72, clockInMhz: 1800, fanSpeedInRpm: 2000 },
+        ram: { usageInPercentage: 55 },
+        disk: { storageUsedInPercentage: 30 },
+        network: { download: 1024, upload: 512 },
+      });
+      assert.deepEqual(conn.systemStats, {
+        cpu: 42, cpuTemp: 65,
+        gpu: 88, gpuTemp: 72,
+        ram: 55, disk: 30,
+        netDown: 1024, netUp: 512,
+      });
+      conn._teardown();
+    });
+
+    it('updateSystemStats notifies subscribers', () => {
+      const conn = freshConnection();
+      let notified = false;
+      conn.onChange(() => { notified = true; });
+      conn.updateSystemStats({
+        cpu: { usageInPercentage: 10, temperatureInCelsius: 40 },
+        gpu: { usageInPercentage: 5, temperatureInCelsius: 38 },
+        ram: { usageInPercentage: 20 },
+        disk: { storageUsedInPercentage: 15 },
+        network: { download: 0, upload: 0 },
+      });
+      assert.ok(notified);
+      conn._teardown();
+    });
+
+    it('updateSystemStats handles missing nested fields gracefully', () => {
+      const conn = freshConnection();
+      conn.updateSystemStats({});
+      assert.deepEqual(conn.systemStats, {
+        cpu: 0, cpuTemp: 0,
+        gpu: 0, gpuTemp: 0,
+        ram: 0, disk: 0,
+        netDown: 0, netUp: 0,
+      });
+      conn._teardown();
+    });
+
+    it('updateSystemStats handles partially missing payload', () => {
+      const conn = freshConnection();
+      conn.updateSystemStats({
+        cpu: { usageInPercentage: 33 },
+        ram: { usageInPercentage: 77 },
+      });
+      assert.equal(conn.systemStats.cpu, 33);
+      assert.equal(conn.systemStats.cpuTemp, 0);
+      assert.equal(conn.systemStats.gpu, 0);
+      assert.equal(conn.systemStats.gpuTemp, 0);
+      assert.equal(conn.systemStats.ram, 77);
+      assert.equal(conn.systemStats.disk, 0);
+      assert.equal(conn.systemStats.netDown, 0);
+      assert.equal(conn.systemStats.netUp, 0);
+      conn._teardown();
+    });
+
+    it('updateSystemStats overwrites previous values', () => {
+      const conn = freshConnection();
+      conn.updateSystemStats({
+        cpu: { usageInPercentage: 50, temperatureInCelsius: 60 },
+        gpu: { usageInPercentage: 70, temperatureInCelsius: 80 },
+        ram: { usageInPercentage: 40 },
+        disk: { storageUsedInPercentage: 90 },
+        network: { download: 100, upload: 200 },
+      });
+      conn.updateSystemStats({
+        cpu: { usageInPercentage: 10, temperatureInCelsius: 30 },
+        gpu: { usageInPercentage: 20, temperatureInCelsius: 35 },
+        ram: { usageInPercentage: 15 },
+        disk: { storageUsedInPercentage: 25 },
+        network: { download: 50, upload: 75 },
+      });
+      assert.deepEqual(conn.systemStats, {
+        cpu: 10, cpuTemp: 30,
+        gpu: 20, gpuTemp: 35,
+        ram: 15, disk: 25,
+        netDown: 50, netUp: 75,
+      });
+      conn._teardown();
+    });
+  });
 });
