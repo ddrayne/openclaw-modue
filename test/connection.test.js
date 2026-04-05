@@ -1161,6 +1161,18 @@ describe('Connection', () => {
       conn._teardown();
     });
 
+    it('updateSystemStats handles null/undefined gracefully', () => {
+      const conn = freshConnection();
+      conn.updateSystemStats(null);
+      assert.deepEqual(conn.systemStats, {
+        cpu: 0, cpuTemp: 0,
+        gpu: 0, gpuTemp: 0,
+        ram: 0, disk: 0,
+        netDown: 0, netUp: 0,
+      });
+      conn._teardown();
+    });
+
     it('updateSystemStats overwrites previous values', () => {
       const conn = freshConnection();
       conn.updateSystemStats({
@@ -1183,6 +1195,147 @@ describe('Connection', () => {
         ram: 15, disk: 25,
         netDown: 50, netUp: 75,
       });
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 19. displayMode tracking
+  // -------------------------------------------------------------------------
+  describe('displayMode', () => {
+    it('starts in ambient mode', () => {
+      const conn = freshConnection();
+      assert.equal(conn.displayMode, 'ambient');
+      conn._teardown();
+    });
+
+    it('switches to streaming when lifecycle starts', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.equal(conn.displayMode, 'streaming');
+      conn._teardown();
+    });
+
+    it('returns to ambient when lifecycle ends', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.equal(conn.displayMode, 'streaming');
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+      assert.equal(conn.displayMode, 'ambient');
+      conn._teardown();
+    });
+
+    it('switches to approval when exec approval arrives', () => {
+      const { conn, client } = connectedPair();
+      client.emit('exec.approval.requested', {
+        id: 'a1',
+        request: { command: 'ls' },
+      });
+      assert.equal(conn.displayMode, 'approval');
+      conn._teardown();
+    });
+
+    it('stays streaming during thinking/talking/working transitions', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.equal(conn.displayMode, 'streaming');
+
+      client.emit('agent', { stream: 'assistant', data: { delta: 'hi' } });
+      assert.equal(conn.displayMode, 'streaming');
+
+      client.emit('agent', { stream: 'tool', data: { phase: 'start', name: 'bash' } });
+      assert.equal(conn.displayMode, 'streaming');
+      conn._teardown();
+    });
+
+    it('goes to ambient on offline', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      assert.equal(conn.displayMode, 'streaming');
+      client.emit('connection', { connected: false });
+      assert.equal(conn.displayMode, 'ambient');
+      conn._teardown();
+    });
+
+    it('approval mode set via _setStatus when pendingApproval exists', () => {
+      const conn = freshConnection();
+      conn.pendingApproval = { id: 'x', command: 'y', risk: 'low' };
+      conn._setStatus('idle');
+      assert.equal(conn.displayMode, 'approval');
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 20. lastActivity tracking
+  // -------------------------------------------------------------------------
+  describe('lastActivity', () => {
+    it('is null initially', () => {
+      const conn = freshConnection();
+      assert.equal(conn.lastActivity, null);
+      conn._teardown();
+    });
+
+    it('captures lastActivity on lifecycle end', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', {
+        stream: 'lifecycle',
+        channel: 'vscode',
+        sender: 'alice',
+        data: { phase: 'start' },
+      });
+      client.emit('agent', { stream: 'assistant', data: { delta: 'Here is your answer.' } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+
+      assert.notEqual(conn.lastActivity, null);
+      assert.equal(conn.lastActivity.channel, 'vscode');
+      assert.equal(conn.lastActivity.sender, 'alice');
+      assert.ok(conn.lastActivity.summary.length > 0);
+      assert.ok(typeof conn.lastActivity.endedAt === 'number');
+      assert.ok(conn.lastActivity.endedAt <= Date.now());
+      conn._teardown();
+    });
+
+    it('summary is truncated to 120 characters', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      // Build long text
+      const longText = 'A'.repeat(200);
+      client.emit('agent', { stream: 'assistant', data: { delta: longText } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+
+      assert.ok(conn.lastActivity.summary.length <= 120);
+      conn._teardown();
+    });
+
+    it('summary defaults to "Completed task" when buffer is empty', () => {
+      const { conn, client } = connectedPair();
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
+      // No assistant/thinking text emitted — buffer stays empty
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+
+      assert.equal(conn.lastActivity.summary, 'Completed task');
+      conn._teardown();
+    });
+
+    it('preserves lastActivity across multiple lifecycle cycles', () => {
+      const { conn, client } = connectedPair();
+      // First cycle
+      client.emit('agent', { stream: 'lifecycle', sender: 'alice', channel: 'vscode', data: { phase: 'start' } });
+      client.emit('agent', { stream: 'assistant', data: { delta: 'First answer' } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+      const first = conn.lastActivity;
+
+      // Second cycle
+      client.emit('agent', { stream: 'lifecycle', sender: 'bob', channel: 'terminal', data: { phase: 'start' } });
+      client.emit('agent', { stream: 'assistant', data: { delta: 'Second answer' } });
+      client.emit('agent', { stream: 'lifecycle', data: { phase: 'end' } });
+      const second = conn.lastActivity;
+
+      assert.equal(second.sender, 'bob');
+      assert.equal(second.channel, 'terminal');
+      assert.ok(second.summary.includes('Second answer'));
+      assert.ok(second.endedAt >= first.endedAt);
       conn._teardown();
     });
   });
