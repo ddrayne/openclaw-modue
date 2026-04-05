@@ -1572,4 +1572,72 @@ describe('Connection', () => {
       conn._teardown();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Agent display control
+  // -------------------------------------------------------------------------
+  describe('Agent display control', () => {
+    it('enters agent mode on modue.display.set', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.display.set', { title: 'Deploying...', body: 'Pushing v2.3.1' });
+      assert.equal(conn.displayMode, 'agent');
+      assert.equal(conn.agentDisplay.title, 'Deploying...');
+      assert.equal(conn.agentDisplay.body, 'Pushing v2.3.1');
+      conn._teardown();
+    });
+
+    it('stores face as Material Symbol name', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.display.set', { face: 'sentiment_satisfied' });
+      assert.equal(conn.agentDisplay.face, 'sentiment_satisfied');
+      conn._teardown();
+    });
+
+    it('stores image as base64', () => {
+      const { conn, client } = connectedPair();
+      const img = 'data:image/png;base64,iVBOR';
+      client.emit('modue.display.set', { image: img });
+      assert.equal(conn.agentDisplay.image, img);
+      conn._teardown();
+    });
+
+    it('returns to ambient on modue.display.release', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.display.set', { title: 'Hello' });
+      assert.equal(conn.displayMode, 'agent');
+      client.emit('modue.display.release', {});
+      assert.equal(conn.displayMode, 'ambient');
+      assert.equal(conn.agentDisplay, null);
+      conn._teardown();
+    });
+
+    it('auto-releases after TTL', async () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.display.set', { title: 'Flash', ttl: 0.1 });
+      assert.equal(conn.displayMode, 'agent');
+      await new Promise(r => setTimeout(r, 200));
+      assert.equal(conn.displayMode, 'ambient');
+      assert.equal(conn.agentDisplay, null);
+      conn._teardown();
+    });
+
+    it('stores raw layout on modue.display.raw', () => {
+      const { conn, client } = connectedPair();
+      const layout = { widget: 'live', rows: [{ height: 48, cols: [{ text: 'Hello' }] }] };
+      client.emit('modue.display.raw', layout);
+      assert.equal(conn.displayMode, 'agent');
+      assert.deepEqual(conn.agentDisplay.raw, layout);
+      conn._teardown();
+    });
+
+    it('notifies on agent display change', () => {
+      const { conn, client } = connectedPair();
+      let count = 0;
+      conn.onChange(() => { count++; });
+      client.emit('modue.display.set', { title: 'A' });
+      client.emit('modue.display.release', {});
+      assert.equal(count, 2);
+      conn._teardown();
+    });
+  });
 });
