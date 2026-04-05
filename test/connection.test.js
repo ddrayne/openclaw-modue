@@ -1465,4 +1465,44 @@ describe('Connection', () => {
       conn._teardown();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 23. Key labels
+  // -------------------------------------------------------------------------
+  describe('Key labels', () => {
+    it('stores key labels from gateway', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.key.labels', { left: 'Approve', center: 'Talk', right: 'Skip' });
+      assert.equal(conn.keyLabels.left, 'Approve');
+      assert.equal(conn.keyLabels.center, 'Talk');
+      assert.equal(conn.keyLabels.right, 'Skip');
+      conn._teardown();
+    });
+
+    it('defaults key labels to empty strings', () => {
+      const conn = freshConnection();
+      assert.equal(conn.keyLabels.left, '');
+      assert.equal(conn.keyLabels.center, '');
+      assert.equal(conn.keyLabels.right, '');
+      conn._teardown();
+    });
+
+    it('updates partial key labels', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.key.labels', { left: 'Yes' });
+      assert.equal(conn.keyLabels.left, 'Yes');
+      assert.equal(conn.keyLabels.center, '');
+      assert.equal(conn.keyLabels.right, '');
+      conn._teardown();
+    });
+
+    it('notifies on label change', () => {
+      const { conn, client } = connectedPair();
+      let notified = false;
+      conn.onChange(() => { notified = true; });
+      client.emit('modue.key.labels', { center: 'Menu' });
+      assert.ok(notified);
+      conn._teardown();
+    });
+  });
 });

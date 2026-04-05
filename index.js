@@ -63,31 +63,32 @@ const openclawPlugin = (configuration, storage, log) => {
   // Keys
   // -------------------------------------------------------------------------
   configuration
-    .registerKey({ name: 'Approve / Prev' })
+    .registerKey({ name: 'Left' })
     .registerOnKeyDownHandler(() => {
       const conn = Connection.getInstance(storage, log);
       if (conn.pendingApproval) {
         conn.approveExec();
       } else {
-        log.info('Prev pressed (no pending approval)');
+        conn.rpc('modue.key.pressed', { key: 'left' }).catch(() => {});
       }
     });
 
   configuration
-    .registerKey({ name: 'Deny / Next' })
+    .registerKey({ name: 'Right' })
     .registerOnKeyDownHandler(() => {
       const conn = Connection.getInstance(storage, log);
       if (conn.pendingApproval) {
         conn.denyExec();
       } else {
-        log.info('Next pressed (no pending approval)');
+        conn.rpc('modue.key.pressed', { key: 'right' }).catch(() => {});
       }
     });
 
   configuration
-    .registerKey({ name: 'Talk' })
+    .registerKey({ name: 'Center' })
     .registerOnKeyDownHandler(() => {
-      log.info('Talk pressed');
+      const conn = Connection.getInstance(storage, log);
+      conn.rpc('modue.key.pressed', { key: 'center' }).catch(() => {});
     });
 
   // -------------------------------------------------------------------------
@@ -96,7 +97,8 @@ const openclawPlugin = (configuration, storage, log) => {
   configuration
     .registerKnob({ name: 'Scroll' })
     .registerOnChangeHandler((value) => {
-      log.info(`Scroll: ${value}`);
+      const conn = Connection.getInstance(storage, log);
+      conn.rpc('modue.knob.changed', { value }).catch(() => {});
     });
 
   // -------------------------------------------------------------------------
