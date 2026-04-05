@@ -68,8 +68,18 @@ const openclawPlugin = (configuration, storage, log) => {
       const conn = Connection.getInstance(storage, log);
       if (conn.pendingApproval) {
         conn.approveExec();
+        log.info('[key] Left: approved exec');
+      } else if (conn.agentStatus === 'thinking' || conn.agentStatus === 'talking' || conn.agentStatus === 'working') {
+        // Abort current generation
+        conn.rpc('chat.abort', {}).then(() => {
+          conn.displayText = '\u23F9 Aborted';
+          conn._notify();
+          log.info('[key] Left: aborted generation');
+        }).catch((e) => log.error(`Abort failed: ${e.message}`));
       } else {
-        conn.rpc('modue.key.pressed', { key: 'left' }).catch(() => {});
+        // Wake the assistant
+        conn.rpc('wake', { text: 'modue button pressed' }).catch(() => {});
+        log.info('[key] Left: wake');
       }
     });
 
@@ -79,8 +89,21 @@ const openclawPlugin = (configuration, storage, log) => {
       const conn = Connection.getInstance(storage, log);
       if (conn.pendingApproval) {
         conn.denyExec();
+        log.info('[key] Right: denied exec');
       } else {
-        conn.rpc('modue.key.pressed', { key: 'right' }).catch(() => {});
+        // Quick status check — show usage/cost on display
+        conn.rpc('usage.status', {}).then((r) => {
+          const cost = r?.totalCost != null ? `\u00A3${r.totalCost.toFixed(2)}` : '';
+          const tokens = r?.totalTokens != null ? `${Math.round(r.totalTokens / 1000)}k tokens` : '';
+          const info = [cost, tokens].filter(Boolean).join(' \u2022 ');
+          conn.displayText = info || 'No usage data';
+          conn._notify();
+          log.info(`[key] Right: usage = ${info}`);
+        }).catch((e) => {
+          conn.displayText = 'Could not fetch usage';
+          conn._notify();
+          log.error(`Usage fetch failed: ${e.message}`);
+        });
       }
     });
 
@@ -88,17 +111,45 @@ const openclawPlugin = (configuration, storage, log) => {
     .registerKey({ name: 'Center' })
     .registerOnKeyDownHandler(() => {
       const conn = Connection.getInstance(storage, log);
-      conn.rpc('modue.key.pressed', { key: 'center' }).catch(() => {});
+      // Toggle between showing channels and last activity
+      conn.rpc('channels.status', {}).then((r) => {
+        const accts = r?.channelAccounts || {};
+        const labels = r?.channelLabels || {};
+        const order = r?.channelOrder || Object.keys(accts);
+        const lines = [];
+        for (const ch of order) {
+          for (const a of (accts[ch] || [])) {
+            const name = labels[ch] || ch;
+            const dot = a.connected ? '\u25CF' : '\u25CB';
+            lines.push(`${dot} ${name}`);
+          }
+        }
+        conn.displayText = lines.join('\n') || 'No channels';
+        conn._notify();
+        log.info(`[key] Center: channels = ${lines.length}`);
+      }).catch((e) => {
+        conn.displayText = 'Could not fetch channels';
+        conn._notify();
+        log.error(`Channels fetch failed: ${e.message}`);
+      });
     });
 
   // -------------------------------------------------------------------------
   // Knob
   // -------------------------------------------------------------------------
+  // Track knob for quick info display
+  let knobLastValue = 50;
   configuration
     .registerKnob({ name: 'Scroll' })
     .registerOnChangeHandler((value) => {
       const conn = Connection.getInstance(storage, log);
-      conn.rpc('modue.knob.changed', { value }).catch(() => {});
+      const delta = value - knobLastValue;
+      knobLastValue = value;
+      // Show a visual indicator of the knob position
+      const pct = Math.round(value);
+      const bar = '\u2588'.repeat(Math.round(pct / 10)) + '\u2591'.repeat(10 - Math.round(pct / 10));
+      conn.displayText = `${bar} ${pct}%`;
+      conn._notify();
     });
 
   // -------------------------------------------------------------------------
