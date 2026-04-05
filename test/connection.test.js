@@ -1505,4 +1505,71 @@ describe('Connection', () => {
       conn._teardown();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // LED control
+  // -------------------------------------------------------------------------
+  describe('LED control', () => {
+    it('stores direct LED colors from gateway', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.set', { colors: ['#FF0000FF', '#00FF00FF'] });
+      assert.deepEqual(conn.ledOverride.colors, ['#FF0000FF', '#00FF00FF']);
+      conn._teardown();
+    });
+
+    it('overrides getLedColors with direct colors', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.set', { colors: ['#FF0000FF', '#00FF00FF'] });
+      const leds = conn.getLedColors(4, 0);
+      assert.deepEqual(leds, ['#FF0000FF', '#00FF00FF', '#FF0000FF', '#00FF00FF']);
+      conn._teardown();
+    });
+
+    it('stores LED pattern from gateway', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.pattern', { pattern: 'breathe', color: '#4488ff', speed: 5 });
+      assert.equal(conn.ledOverride.pattern, 'breathe');
+      assert.equal(conn.ledOverride.color, '#4488ff');
+      conn._teardown();
+    });
+
+    it('solid pattern fills all LEDs', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.pattern', { pattern: 'solid', color: '#4488ff' });
+      const leds = conn.getLedColors(4, 0);
+      assert.deepEqual(leds, ['#4488ffFF', '#4488ffFF', '#4488ffFF', '#4488ffFF']);
+      conn._teardown();
+    });
+
+    it('chase pattern lights one LED at a time', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.pattern', { pattern: 'chase', color: '#ff0000', speed: 5 });
+      const leds = conn.getLedColors(4, 0);
+      // frame 0, speed 5 -> cycle = 0 -> active = 0
+      assert.equal(leds[0], '#ff0000FF');
+      assert.equal(leds[1], '#ff000022');
+      conn._teardown();
+    });
+
+    it('clears LED override on release', () => {
+      const { conn, client } = connectedPair();
+      client.emit('modue.leds.set', { colors: ['#FF0000FF'] });
+      assert.ok(conn.ledOverride);
+      client.emit('modue.leds.release', {});
+      assert.equal(conn.ledOverride, null);
+      conn._teardown();
+    });
+
+    it('returns to default behavior after release', () => {
+      const { conn, client } = connectedPair();
+      client.emit('connection', { connected: true });
+      client.emit('modue.leds.set', { colors: ['#FF0000FF'] });
+      client.emit('modue.leds.release', {});
+      // Should use default status-based colors now
+      const leds = conn.getLedColors(4, 0);
+      // idle = green solid
+      assert.equal(leds[0], '#31e000FF');
+      conn._teardown();
+    });
+  });
 });
