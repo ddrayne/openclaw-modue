@@ -53,7 +53,8 @@ const openclawPlugin = (configuration, storage, log) => {
     })
     .registerOnChangeHandler((value, _instance) => {
       const conn = Connection.getInstance(storage, log);
-      conn.sendSliderChanged(value);
+      // Use slider to scroll through response text
+      conn.handleSliderScroll(value);
     })
     .registerOnDeactivateHandler(() => {
       try { Connection.getInstance()._sliderInstance = null; } catch (_) {}
@@ -137,19 +138,10 @@ const openclawPlugin = (configuration, storage, log) => {
   // -------------------------------------------------------------------------
   // Knob
   // -------------------------------------------------------------------------
-  // Track knob for quick info display
-  let knobLastValue = 50;
   configuration
     .registerKnob({ name: 'Scroll' })
     .registerOnChangeHandler((value) => {
-      const conn = Connection.getInstance(storage, log);
-      const delta = value - knobLastValue;
-      knobLastValue = value;
-      // Show a visual indicator of the knob position
-      const pct = Math.round(value);
-      const bar = '\u2588'.repeat(Math.round(pct / 10)) + '\u2591'.repeat(10 - Math.round(pct / 10));
-      conn.displayText = `${bar} ${pct}%`;
-      conn._notify();
+      // Knob currently unused — could map to model select or volume
     });
 
   // -------------------------------------------------------------------------
