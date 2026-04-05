@@ -1248,6 +1248,14 @@ describe('Connection', () => {
       conn._teardown();
     });
 
+    it('does not reset agent mode on idle transition', () => {
+      const conn = freshConnection();
+      conn.displayMode = 'agent';
+      conn._setStatus('idle');
+      assert.equal(conn.displayMode, 'agent');
+      conn._teardown();
+    });
+
     it('goes to ambient on offline', () => {
       const { conn, client } = connectedPair();
       client.emit('agent', { stream: 'lifecycle', data: { phase: 'start' } });
@@ -1336,6 +1344,76 @@ describe('Connection', () => {
       assert.equal(second.channel, 'terminal');
       assert.ok(second.summary.includes('Second answer'));
       assert.ok(second.endedAt >= first.endedAt);
+      conn._teardown();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 21. Connection health tracking
+  // -------------------------------------------------------------------------
+  describe('connection health', () => {
+    it('initializes health with zeroed values', () => {
+      const conn = freshConnection();
+      assert.deepEqual(conn.health, {
+        connectedSince: 0,
+        reconnects: 0,
+        wasConnected: false,
+      });
+      conn._teardown();
+    });
+
+    it('tracks connectedSince timestamp on connect', () => {
+      const { conn, client } = connectedPair();
+      const before = Date.now();
+      client.emit('connection', { connected: true });
+      const after = Date.now();
+      assert.ok(conn.health.connectedSince >= before);
+      assert.ok(conn.health.connectedSince <= after);
+      conn._teardown();
+    });
+
+    it('does NOT increment reconnects on first connect', () => {
+      const { conn, client } = connectedPair();
+      client.emit('connection', { connected: true });
+      assert.equal(conn.health.reconnects, 0);
+      assert.equal(conn.health.wasConnected, true);
+      conn._teardown();
+    });
+
+    it('increments reconnect count on disconnect then reconnect', () => {
+      const { conn, client } = connectedPair();
+      // First connect
+      client.emit('connection', { connected: true });
+      assert.equal(conn.health.reconnects, 0);
+
+      // Disconnect
+      client.emit('connection', { connected: false });
+      assert.equal(conn.health.reconnects, 0); // no change on disconnect
+
+      // Reconnect
+      client.emit('connection', { connected: true });
+      assert.equal(conn.health.reconnects, 1);
+      conn._teardown();
+    });
+
+    it('increments reconnects for each subsequent reconnect', () => {
+      const { conn, client } = connectedPair();
+      client.emit('connection', { connected: true });
+      client.emit('connection', { connected: false });
+      client.emit('connection', { connected: true });
+      client.emit('connection', { connected: false });
+      client.emit('connection', { connected: true });
+      assert.equal(conn.health.reconnects, 2);
+      conn._teardown();
+    });
+
+    it('updates connectedSince on each reconnect', () => {
+      const { conn, client } = connectedPair();
+      client.emit('connection', { connected: true });
+      const first = conn.health.connectedSince;
+      client.emit('connection', { connected: false });
+      client.emit('connection', { connected: true });
+      assert.ok(conn.health.connectedSince >= first);
       conn._teardown();
     });
   });
