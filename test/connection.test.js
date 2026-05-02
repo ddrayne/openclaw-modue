@@ -36,7 +36,14 @@ require.cache[wsClientPath] = {
 };
 
 // Now require the module-under-test.
-const { Connection, STATUS_COLORS, IDLE_PHRASES, STATUS_PHRASES } = require('../lib/connection');
+const {
+  Connection,
+  STATUS_COLORS,
+  APPROVAL_COLOR,
+  IDLE_PHRASES,
+  STATUS_PHRASES,
+  MAX_TEXT_LENGTH,
+} = require('../lib/connection');
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -170,30 +177,22 @@ describe('Connection', () => {
   // 3. Mood colors + approval override
   // -------------------------------------------------------------------------
   describe('mood colors', () => {
-    it('each status maps to the expected color', () => {
+    it('each status maps to its STATUS_COLORS entry', () => {
       const conn = freshConnection();
-      const expected = {
-        idle:     '#31e000',
-        thinking: '#9944FF',
-        talking:  '#4488ff',
-        working:  '#ff9900',
-        error:    '#ff3333',
-        offline:  '#333344',
-      };
-      for (const [status, color] of Object.entries(expected)) {
+      for (const status of ['idle', 'thinking', 'talking', 'working', 'error', 'offline']) {
         conn._setStatus(status);
-        assert.equal(conn.moodColor, color, `status=${status}`);
+        assert.equal(conn.moodColor, STATUS_COLORS[status], `status=${status}`);
       }
       conn._teardown();
     });
 
-    it('pendingApproval overrides moodColor to amber', () => {
+    it('pendingApproval overrides moodColor to APPROVAL_COLOR', () => {
       const conn = freshConnection();
       conn._setStatus('idle');
       assert.equal(conn.moodColor, STATUS_COLORS.idle);
       conn.pendingApproval = { id: 'x', command: 'rm -rf /' };
       conn._refreshMoodColor();
-      assert.equal(conn.moodColor, '#ff9900');
+      assert.equal(conn.moodColor, APPROVAL_COLOR);
       conn._teardown();
     });
 
@@ -202,7 +201,7 @@ describe('Connection', () => {
       conn._setStatus('talking');
       conn.pendingApproval = { id: 'x', command: 'y' };
       conn._refreshMoodColor();
-      assert.equal(conn.moodColor, '#ff9900');
+      assert.equal(conn.moodColor, APPROVAL_COLOR);
       conn.pendingApproval = null;
       conn._refreshMoodColor();
       assert.equal(conn.moodColor, STATUS_COLORS.talking);
@@ -224,20 +223,21 @@ describe('Connection', () => {
 
     it('truncates to the last MAX_TEXT_LENGTH characters', () => {
       const conn = freshConnection();
-      const chunk = 'a'.repeat(500);
-      conn._appendText(chunk);
-      conn._appendText(chunk); // now 1000 chars
-      assert.equal(conn.currentText.length, 800);
-      assert.equal(conn.currentText, 'a'.repeat(800));
+      // Force overflow regardless of the configured MAX_TEXT_LENGTH.
+      const chunkSize = Math.ceil(MAX_TEXT_LENGTH * 0.6);
+      conn._appendText('a'.repeat(chunkSize));
+      conn._appendText('a'.repeat(chunkSize));
+      assert.equal(conn.currentText.length, MAX_TEXT_LENGTH);
+      assert.equal(conn.currentText, 'a'.repeat(MAX_TEXT_LENGTH));
       conn._teardown();
     });
 
     it('keeps text at MAX_TEXT_LENGTH when appending beyond limit', () => {
       const conn = freshConnection();
-      conn._appendText('x'.repeat(800));
-      assert.equal(conn.currentText.length, 800);
+      conn._appendText('x'.repeat(MAX_TEXT_LENGTH));
+      assert.equal(conn.currentText.length, MAX_TEXT_LENGTH);
       conn._appendText('y');
-      assert.equal(conn.currentText.length, 800);
+      assert.equal(conn.currentText.length, MAX_TEXT_LENGTH);
       assert.ok(conn.currentText.endsWith('y'));
       conn._teardown();
     });
@@ -446,7 +446,7 @@ describe('Connection', () => {
         request: { command: 'rm -r /tmp' },
       });
       assert.deepEqual(conn.pendingApproval, { id: 'abc', command: 'rm -r /tmp', risk: 'HIGH' });
-      assert.equal(conn.moodColor, '#ff9900');
+      assert.equal(conn.moodColor, APPROVAL_COLOR);
       assert.equal(conn.statusPhrase, '\u26A0 APPROVE?');
       assert.equal(conn.displayText, 'rm -r /tmp');
       conn._teardown();
@@ -492,11 +492,10 @@ describe('Connection', () => {
       const { conn, client } = connectedPair();
       conn._setStatus('talking');
       client.emit('exec.approval.requested', { id: 'x', request: { command: 'y' } });
-      assert.equal(conn.moodColor, '#ff9900');
+      assert.equal(conn.moodColor, APPROVAL_COLOR);
       client.emit('exec.approval.resolved', { id: 'x' });
       // After resolving, _refreshMoodColor uses current agentStatus.
-      // The status was last set internally; let's just check it's not amber.
-      assert.notEqual(conn.moodColor, '#ff9900');
+      assert.notEqual(conn.moodColor, APPROVAL_COLOR);
       conn._teardown();
     });
 
@@ -805,9 +804,14 @@ describe('Connection', () => {
       conn._teardown();
     });
 
-    it('collapses newlines and whitespace', () => {
+    it('preserves paragraph breaks but collapses inline whitespace', () => {
       const conn = freshConnection();
-      assert.equal(conn._extractDisplayText('line one\n\nline two'), 'line one line two');
+      // Paragraph break (\n\n) is preserved by design — readability matters.
+      assert.equal(conn._extractDisplayText('line one\n\nline two'), 'line one\n\nline two');
+      // Inline runs of spaces/tabs collapse to a single space.
+      assert.equal(conn._extractDisplayText('hello   world'), 'hello world');
+      // 3+ consecutive newlines collapse down to a single paragraph break.
+      assert.equal(conn._extractDisplayText('a\n\n\n\nb'), 'a\n\nb');
       conn._teardown();
     });
 
@@ -1565,10 +1569,9 @@ describe('Connection', () => {
       client.emit('connection', { connected: true });
       client.emit('modue.leds.set', { colors: ['#FF0000FF'] });
       client.emit('modue.leds.release', {});
-      // Should use default status-based colors now
+      // Should use default status-based colors now (idle = green solid)
       const leds = conn.getLedColors(4, 0);
-      // idle = green solid
-      assert.equal(leds[0], '#31e000FF');
+      assert.equal(leds[0], `${STATUS_COLORS.idle}FF`);
       conn._teardown();
     });
   });
