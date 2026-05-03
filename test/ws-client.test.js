@@ -63,3 +63,32 @@ describe('OpenClawClient.disconnect', () => {
     await expectReject;
   });
 });
+
+describe('OpenClawClient pong masking (RFC 6455 §5.1)', () => {
+  it('responds to a server ping with a MASKED pong frame', () => {
+    const c = new OpenClawClient('ws://localhost:1', 'tok', makeLog(), makeStorage());
+
+    // Capture writes
+    const writes = [];
+    c.socket = {
+      write: (buf) => writes.push(Buffer.from(buf)),
+      destroyed: false,
+      end: () => {},
+    };
+
+    // Build a server-side ping: opcode 0x9, length 0, NOT masked (server->client
+    // frames are unmasked per spec). Two bytes total.
+    const serverPing = Buffer.from([0x89, 0x00]);
+    c._onData(serverPing);
+
+    // Expect exactly one write: a 6-byte masked pong frame.
+    assert.equal(writes.length, 1, 'should write exactly one pong');
+    const pong = writes[0];
+    assert.equal(pong.length, 6, 'pong should be 2-byte header + 4-byte mask key');
+    assert.equal(pong[0], 0x8a, 'first byte should be FIN + pong opcode');
+    assert.equal(pong[1] & 0x80, 0x80, 'MASK bit must be set on client->server frames');
+    assert.equal(pong[1] & 0x7f, 0x00, 'payload length should be 0');
+    // The four mask bytes should be present (random — just assert they exist).
+    assert.equal(pong.subarray(2, 6).length, 4);
+  });
+});
